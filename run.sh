@@ -3,19 +3,47 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ $# -lt 2 ]]; then
-    echo "Usage: $0 <num_pods> <chunk_mib> [gpus_per_node] [poll_interval_s]"
-    echo "  num_pods:         number of StatefulSet replicas (one per node)"
-    echo "  chunk_mib:        GPU memory chunk size in MiB per peer-round"
-    echo "  gpus_per_node:    GPUs per pod (default: 1)"
-    echo "  poll_interval_s:  seconds between benchmark rounds (default: 3)"
+usage() {
+    echo "Usage: $0 <num_pods> [options]"
+    echo ""
+    echo "  num_pods               number of StatefulSet replicas (one per node)"
+    echo ""
+    echo "Options:"
+    echo "  --chunk-mib N          GPU memory chunk size in MiB (default: 2500)"
+    echo "  --gpus-per-node N      GPUs per pod (default: 4)"
+    echo "  --poll-interval N      seconds between benchmark rounds (default: 1)"
+    echo "  --gpu-dra              use DRA for GPU allocation instead of device plugin"
     exit 1
+}
+
+if [[ $# -lt 1 ]]; then
+    usage
 fi
 
 export ACK_REPLICAS="$1"
-export ACK_CHUNK_MIB="$2"
-export ACK_GPUS_PER_NODE="${3:-1}"
-export ACK_POLL_INTERVAL_S="${4:-1}"
+shift
+
+# Defaults.
+export ACK_CHUNK_MIB="2500"
+export ACK_GPUS_PER_NODE="4"
+export ACK_POLL_INTERVAL_S="1"
+GPU_DRA=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --chunk-mib)
+            ACK_CHUNK_MIB="$2"; shift 2 ;;
+        --gpus-per-node)
+            ACK_GPUS_PER_NODE="$2"; shift 2 ;;
+        --poll-interval)
+            ACK_POLL_INTERVAL_S="$2"; shift 2 ;;
+        --gpu-dra)
+            GPU_DRA=true; shift ;;
+        *)
+            echo "Unknown option: $1"
+            usage ;;
+    esac
+done
 
 echo "--- Cleaning up previous resources (if any)"
 kubectl delete statefulset ack --ignore-not-found
@@ -25,9 +53,9 @@ kubectl delete resourceclaimtemplate ack-gpu-rct --ignore-not-found
 # Wait for pods to terminate before redeploying.
 kubectl wait --for=delete pod -l app=ack --timeout=60s 2>/dev/null || true
 
-if [[ -n "${ACK_GPU_DRA:-}" ]]; then
+if [[ "$GPU_DRA" == "true" ]]; then
     TEMPLATE="${SCRIPT_DIR}/ack-dra.yaml.envsubst"
-    echo "--- ACK_GPU_DRA is set, using DRA for GPU allocation"
+    echo "--- Using DRA for GPU allocation"
 else
     TEMPLATE="${SCRIPT_DIR}/ack.yaml.envsubst"
 fi
