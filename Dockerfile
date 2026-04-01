@@ -14,7 +14,7 @@ WORKDIR /ack
 
 RUN python3.12 -m venv .venv
 ENV PATH="/ack/.venv/bin:${PATH}"
-RUN pip install requests cuda-python[all]==12.9.6 dnspython orjson zstandard
+RUN pip install cuda-python[all]==12.9.6 dnspython orjson zstandard py-spy yappi
 
 COPY ./ack.py /ack
 

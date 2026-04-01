@@ -64,6 +64,9 @@ spec:
       - name: ack
         image: docker.io/jgehrcke/ack:latest
         command: ["python", "/ack/ack.py"]
+        securityContext:
+          capabilities:
+            add: ["SYS_PTRACE"]
         ports:
         - containerPort: 1337
           hostPort: 1337  # If port 1337 is already in use on the node,

@@ -100,6 +100,7 @@ import collections
 import concurrent.futures
 import ctypes
 import datetime
+import http.client
 import itertools
 import json
 import logging
@@ -118,9 +119,8 @@ from urllib.parse import urlparse, parse_qs
 
 import dns.resolver
 import orjson
-import requests
+import yappi
 import zstandard
-from requests.adapters import HTTPAdapter
 
 from cuda.bindings import driver, runtime, nvrtc
 
@@ -201,11 +201,56 @@ def cucheck(result):
         return result[1:]
 
 
-# HTTP session with no internal retries. Retrying is done explicitly
-# in the calling code where we can control timing and log level.
-_http_session = requests.Session()
-_http_session.mount("http://", HTTPAdapter(max_retries=0))
-_http_session.mount("https://", HTTPAdapter(max_retries=0))
+# Thread-local persistent HTTP connections to peer pods. Each benchmark
+# thread reuses one connection per peer for all lock/unlock/prepare calls,
+# avoiding per-request connection setup and the overhead of the requests
+# library (URL parsing, proxy scanning, charset detection, cookie handling).
+_tls = threading.local()
+
+
+def _http_conn(host, port, timeout):
+    """Get or create a persistent HTTPConnection for this thread."""
+    conns = getattr(_tls, "conns", None)
+    if conns is None:
+        conns = {}
+        _tls.conns = conns
+    key = (host, port)
+    conn = conns.get(key)
+    if conn is not None:
+        conn.timeout = timeout
+        return conn
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
+    conns[key] = conn
+    return conn
+
+
+def _http_conn_close(host, port):
+    """Close and discard a cached connection."""
+    conns = getattr(_tls, "conns", None)
+    if conns:
+        conn = conns.pop((host, port), None)
+        if conn:
+            conn.close()
+
+
+def _http_do(method, host, port, path, timeout):
+    """HTTP request with persistent connection and transparent reconnect.
+
+    Returns (status, body_bytes). Retries once on stale connection.
+    """
+    for attempt in range(2):
+        conn = _http_conn(host, port, timeout)
+        try:
+            conn.request(method, path)
+            resp = conn.getresponse()
+            body = resp.read()
+            return resp.status, body
+        except (http.client.RemoteDisconnected, http.client.HTTPException,
+                ConnectionError, BrokenPipeError, OSError):
+            _http_conn_close(host, port)
+            if attempt == 0:
+                continue
+            raise
 
 # zstd compressor for HTTP responses. Level 1: minimal CPU, good ratio on JSON.
 # ZstdCompressor is thread-safe for compress() calls.
@@ -336,9 +381,8 @@ def cuda_cleanup():
     # Use very short timeouts — we're in teardown and may be killed soon.
     for peer_host, port, gpu_index, token in list(HELD_REMOTE_LOCKS):
         try:
-            url = (f"http://{peer_host}:{port}/unlock-gpu"
-                   f"?gpu_index={gpu_index}&token={token}")
-            _http_session.post(url, timeout=(0.3, 0.5))
+            path = f"/unlock-gpu?gpu_index={gpu_index}&token={token}"
+            _http_do("POST", peer_host, port, path, timeout=0.5)
             log.info("cuda_cleanup: released remote lock %s gpu %d",
                      peer_host, gpu_index)
         except Exception:
@@ -492,7 +536,10 @@ def cuda_init():
         CUDEVS[gpu_idx] = cudev
         log.info("GPU %d: cudev=%s", gpu_idx, cudev)
 
-        # Each GPU has its own primary context.
+        # Use blocking sync so cuEventSynchronize yields to the OS
+        # instead of spin-waiting (reduces CPU usage dramatically).
+        cucheck(driver.cuDevicePrimaryCtxSetFlags(
+            cudev, driver.CUctx_flags.CU_CTX_SCHED_BLOCKING_SYNC))
         ctx = cucheck(driver.cuDevicePrimaryCtxRetain(cudev))
         cucheck(driver.cuCtxPushCurrent(ctx))
         log.info("GPU %d: retained and pushed primary context: %s", gpu_idx, ctx)
@@ -723,20 +770,18 @@ def acquire_remote_gpu_lock(peer_host: str, port: int, gpu_index: int) -> tuple[
         (token, wait_ms): The lock token for release, and wall-clock wait.
 
     Raises:
-        RuntimeError: If the remote pod returns a non-200 status.
-        requests.exceptions.RequestException: On connection or timeout failure.
+        LockError: If the remote pod returns a non-200 status.
+        OSError: On connection or timeout failure.
     """
     log.debug("remote lock %s GPU %d: acquiring", peer_host, gpu_index)
     t0 = time.monotonic()
-    resp = _http_session.post(
-        f"http://{peer_host}:{port}/lock-gpu?gpu_index={gpu_index}"
-        f"&holder={K8S_PODNAME}",
-        timeout=(1, GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S),
-    )
-    if resp.status_code != 200:
-        raise LockError(f"lock-gpu failed: HTTP {resp.status_code}: {resp.text}")
+    path = f"/lock-gpu?gpu_index={gpu_index}&holder={K8S_PODNAME}"
+    status, body = _http_do("POST", peer_host, port, path,
+                            timeout=GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S)
+    if status != 200:
+        raise LockError(f"lock-gpu failed: HTTP {status}: {body.decode()}")
     wait_ms = (time.monotonic() - t0) * 1000
-    token = resp.text
+    token = body.decode()
     log.debug("remote lock %s GPU %d: acquired in %.1f ms",
               peer_host, gpu_index, wait_ms)
     HELD_REMOTE_LOCKS.add((peer_host, port, gpu_index, token))
@@ -754,10 +799,10 @@ def release_remote_gpu_lock(peer_host: str, port: int, gpu_index: int,
     Never raises — failures are logged as warnings.
     """
     HELD_REMOTE_LOCKS.discard((peer_host, port, gpu_index, token))
-    url = f"http://{peer_host}:{port}/unlock-gpu?gpu_index={gpu_index}&token={token}"
+    path = f"/unlock-gpu?gpu_index={gpu_index}&token={token}"
     for attempt in range(7):
         try:
-            _http_session.post(url, timeout=(1, 2))
+            _http_do("POST", peer_host, port, path, timeout=2)
             return
         except Exception as exc:
             log.warning("failed to release remote GPU lock on %s gpu %d "
@@ -790,12 +835,11 @@ def _broadcast_evict_to_peers():
     EVICT_BUDGET_S = 20  # Total time budget per peer for both attempts.
 
     def _evict_one(pod_name, peer_host):
-        url = (f"http://{peer_host}:{HTTPD_PORT}"
-               f"/evict-peer?pod_name={K8S_PODNAME}")
+        path = f"/evict-peer?pod_name={K8S_PODNAME}"
         deadline = time.monotonic() + EVICT_BUDGET_S
-        # First attempt: up to 15s recv.
+        # First attempt: up to 15s.
         try:
-            _http_session.post(url, timeout=(1, 15))
+            _http_do("POST", peer_host, HTTPD_PORT, path, timeout=15)
             log.info("shutdown: evict-peer confirmed by %s", pod_name)
             return
         except Exception as exc:
@@ -807,7 +851,7 @@ def _broadcast_evict_to_peers():
             log.warning("shutdown: evict-peer to %s: no time for retry", pod_name)
             return
         try:
-            _http_session.post(url, timeout=(0.5, remaining))
+            _http_do("POST", peer_host, HTTPD_PORT, path, timeout=remaining)
             log.info("shutdown: evict-peer confirmed by %s (attempt 2)",
                      pod_name)
         except Exception as exc:
@@ -1125,30 +1169,25 @@ def fetch_chunk_meta(peer_host: str, port: int, gpu_index: int) -> dict:
     """Fetch chunk metadata from a peer pod via GET /prepare-chunk?gpu_index=N.
 
     Raises:
-        requests.exceptions.HTTPError: On non-200 response.
-        requests.exceptions.RequestException: On connection or timeout failure.
+        RuntimeError: On non-200 response.
+        OSError: On connection or timeout failure.
     """
-    url = f"http://{peer_host}:{port}/prepare-chunk?gpu_index={gpu_index}"
-    resp = _http_session.get(url, timeout=(0.5, 1))
-    if resp.status_code != 200:
-        log.error("peer returned HTTP %s: %s", resp.status_code, resp.text)
-        resp.raise_for_status()
-    return resp.json()
+    path = f"/prepare-chunk?gpu_index={gpu_index}"
+    status, body = _http_do("GET", peer_host, port, path, timeout=1)
+    if status != 200:
+        log.error("peer returned HTTP %s: %s", status, body.decode())
+        raise RuntimeError(f"prepare-chunk: HTTP {status}")
+    return json.loads(body)
 
 
 # Connection errors that indicate the remote end is simply not reachable
 # right now. These are expected during pod restarts and don't warrant a
 # full stack trace.
 _TRANSIENT_CONN_ERRORS = (
-    requests.exceptions.ConnectionError,
-    requests.exceptions.Timeout,
+    ConnectionError,
+    TimeoutError,
+    OSError,
 )
-
-
-def _is_dns_failure(exc):
-    """Check if a requests exception is a DNS resolution failure."""
-    msg = str(exc).lower()
-    return "name or service not known" in msg or "name resolution" in msg
 
 
 def _fetch_chunk_meta_with_retry(peer_host, port, gpu_index, peer_name):
@@ -1164,12 +1203,7 @@ def _fetch_chunk_meta_with_retry(peer_host, port, gpu_index, peer_name):
             return fetch_chunk_meta(peer_host, port, gpu_index)
         except _TRANSIENT_CONN_ERRORS as exc:
             msg = str(exc)
-            if hasattr(exc, "args") and exc.args:
-                inner = exc.args[0]
-                if hasattr(inner, "reason"):
-                    msg = str(inner.reason)
-            # DNS failure: skip entire peer, no retry.
-            if _is_dns_failure(exc):
+            if isinstance(exc, socket.gaierror):
                 log.warning("peer %s unreachable (DNS): %s", peer_name, msg)
                 raise PeerUnreachableError(msg) from exc
             if attempt == 0:
@@ -1218,6 +1252,24 @@ def map_imported_chunk(alloc_handle, alloc_size: int, gpu_idx: int) -> int:
     return va_ptr
 
 
+def _poll_event(event):
+    """Wait for a CUDA event to complete by polling with sleep.
+
+    Yields the CPU instead of spin-waiting in the driver. The GPU-side
+    timestamps are unaffected — they are recorded by cuEventRecord
+    regardless of how the host waits.
+    """
+    while True:
+        result = driver.cuEventQuery(event)
+        if result[0] == driver.CUresult.CUDA_SUCCESS:
+            return
+        if result[0] == driver.CUresult.CUDA_ERROR_NOT_READY:
+            time.sleep(0.001)
+            continue
+        # Unexpected error — let cucheck raise.
+        cucheck(result)
+
+
 def verify_chunk_on_gpu(local_gpu_idx: int, va_ptr: int, alloc_size: int,
                         num_floats: int, expected_value: float) -> tuple[str, float]:
     """Copy remote-mapped chunk to local buffer via DtoD, measure bandwidth, verify data.
@@ -1254,7 +1306,7 @@ def verify_chunk_on_gpu(local_gpu_idx: int, va_ptr: int, alloc_size: int,
         cucheck(driver.cuEventRecord(ev_start, 0))
         cucheck(driver.cuMemcpyDtoD(local_buf, va_ptr, alloc_size))
         cucheck(driver.cuEventRecord(ev_end, 0))
-        cucheck(driver.cuEventSynchronize(ev_end))
+        _poll_event(ev_end)
         durations_ms.append(cucheck(driver.cuEventElapsedTime(ev_start, ev_end)))
     cucheck(driver.cuEventDestroy(ev_start))
     cucheck(driver.cuEventDestroy(ev_end))
@@ -1809,6 +1861,8 @@ def start_peer_poll_thread():
 
 
 class HTTPHandler(BaseHTTPRequestHandler):
+    # HTTP/1.1 enables persistent connections (keep-alive).
+    protocol_version = "HTTP/1.1"
 
     def _respond(self, code, body):
         """Send an HTTP response. Accepts str or bytes body."""
@@ -1857,6 +1911,30 @@ class HTTPHandler(BaseHTTPRequestHandler):
         return parsed, params, gpu_idx
 
     def do_GET(self):
+        if "/debug/profile-stop" in self.path:
+            if not yappi.is_running():
+                self._respond(400, b"profiler not running")
+                return
+            yappi.stop()
+            stats = yappi.get_func_stats()
+            stats.save("/tmp/profile.pstats", type="pstat")
+            yappi.clear_stats()
+            log.info("profiler stopped, wrote /tmp/profile.pstats "
+                     "(%d functions)", len(stats))
+            self._respond(200, f"stopped, {len(stats)} functions, "
+                          f"saved to /tmp/profile.pstats")
+            return
+
+        if "/debug/profile-start" in self.path:
+            if yappi.is_running():
+                self._respond(400, b"profiler already running")
+                return
+            yappi.set_clock_type("cpu")
+            yappi.start(builtins=False)
+            log.info("profiler started (cpu clock)")
+            self._respond(200, b"profiler started")
+            return
+
         if "/results" in self.path:
             now_mono = time.monotonic()
             # Build results list: completed history + in-progress round.
