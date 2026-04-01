@@ -13,7 +13,7 @@ build-and-push-as-latest: build-and-push
 	docker buildx build --progress plain -t docker.io/jgehrcke/ack:latest --push .
 
 dashboard:
-	uv run dashboard.py
+	bash -c 'trap "stty sane" EXIT; uv run dashboard.py'
 
 profile:
 	$(eval NODE_IP := $(shell kubectl get pod ack-0 -o jsonpath='{.status.hostIP}'))
