@@ -27,3 +27,4 @@ clean:
 	kubectl delete statefulset ack --ignore-not-found
 	kubectl delete service svc-ack --ignore-not-found
 	kubectl delete computedomain ack-compute-domain --ignore-not-found
+	kubectl delete resourceclaimtemplate ack-gpu-rct --ignore-not-found

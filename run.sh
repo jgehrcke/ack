@@ -21,11 +21,19 @@ echo "--- Cleaning up previous resources (if any)"
 kubectl delete statefulset ack --ignore-not-found
 kubectl delete service svc-ack --ignore-not-found
 kubectl delete computedomain ack-compute-domain --ignore-not-found
+kubectl delete resourceclaimtemplate ack-gpu-rct --ignore-not-found
 # Wait for pods to terminate before redeploying.
 kubectl wait --for=delete pod -l app=ack --timeout=60s 2>/dev/null || true
 
+if [[ -n "${ACK_GPU_DRA:-}" ]]; then
+    TEMPLATE="${SCRIPT_DIR}/ack-dra.yaml.envsubst"
+    echo "--- ACK_GPU_DRA is set, using DRA for GPU allocation"
+else
+    TEMPLATE="${SCRIPT_DIR}/ack.yaml.envsubst"
+fi
+
 echo "--- Rendering manifest: REPLICAS=${REPLICAS}, CHUNK_MIB=${CHUNK_MIB}, GPUS_PER_NODE=${GPUS_PER_NODE}, POLL_INTERVAL_S=${POLL_INTERVAL_S}"
-RENDERED=$(envsubst '${REPLICAS} ${CHUNK_MIB} ${GPUS_PER_NODE} ${POLL_INTERVAL_S}' < "${SCRIPT_DIR}/ack.yaml.envsubst")
+RENDERED=$(envsubst '${REPLICAS} ${CHUNK_MIB} ${GPUS_PER_NODE} ${POLL_INTERVAL_S}' < "$TEMPLATE")
 
 echo "--- Applying manifest"
 echo "$RENDERED" | kubectl apply -f -

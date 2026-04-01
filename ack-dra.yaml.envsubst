@@ -1,0 +1,132 @@
+apiVersion: resource.nvidia.com/v1beta1
+kind: ComputeDomain
+metadata:
+  name: ack-compute-domain
+spec:
+  numNodes: ${REPLICAS}
+  channel:
+    resourceClaimTemplate:
+      name: ack-compute-domain-rct
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: ack-gpu-rct
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: gpu.nvidia.com
+          count: ${GPUS_PER_NODE}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-ack
+spec:
+  clusterIP: None
+  ports:
+  - name: http
+    port: 1337
+    targetPort: 1337
+  selector:
+    app: ack
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ack
+spec:
+  serviceName: svc-ack
+  podManagementPolicy: Parallel
+  replicas: ${REPLICAS}
+  selector:
+    matchLabels:
+      app: ack
+  template:
+    metadata:
+      labels:
+        app: ack
+    spec:
+      # Allow enough time for graceful shutdown: drain locks (~3s),
+      # broadcast evict-peer to peers (~20s budget, parallel), CUDA
+      # cleanup (~1s). Total ~24s, leaving ~6s margin.
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - ack
+            topologyKey: nvidia.com/gpu.clique
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - ack
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: ack
+        image: docker.io/jgehrcke/ack:latest
+        command: ["python", "/ack/ack.py"]
+        ports:
+        - containerPort: 1337
+          hostPort: 1337  # If port 1337 is already in use on the node,
+          protocol: TCP   # the pod will fail to schedule (Unschedulable).
+          # The scheduler treats hostPort as a node-level resource —
+          # only one pod per node can claim a given hostPort. Since we
+          # already enforce one pod per node via podAntiAffinity, this
+          # is safe. Change if 1337 conflicts with other workloads.
+        env:
+        - name: HTTPD_PORT
+          value: "1337"
+        - name: CHUNK_MIB
+          value: "${CHUNK_MIB}"
+        - name: FLOAT_VALUE
+          value: "1.0"
+        - name: SVC_NAME
+          value: "svc-ack"
+        - name: POLL_INTERVAL_S
+          value: "${POLL_INTERVAL_S}"
+        - name: GPUS_PER_NODE
+          value: "${GPUS_PER_NODE}"
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 1337
+          periodSeconds: 1
+        # Liveness probe: active only after startup probe succeeds.
+        # /healthz returns 500 if no result produced for 3× poll interval
+        # or on CUDA_ERROR_ILLEGAL_STATE.
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 1337
+          periodSeconds: 3
+          timeoutSeconds: 1
+          failureThreshold: 3
+        resources:
+          claims:
+          - name: shared-imex-channel
+          - name: gpu
+      resourceClaims:
+      - name: shared-imex-channel
+        resourceClaimTemplateName: ack-compute-domain-rct
+      - name: gpu
+        resourceClaimTemplateName: ack-gpu-rct
