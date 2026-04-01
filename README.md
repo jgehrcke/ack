@@ -1,44 +1,41 @@
 # ACK
 
-All-to-all CUDA/MNNVL test for Kubernetes.
+All-to-all CUDA memory copy test for Kubernetes.
 
-Think: MPI-free, dynamic nvbandwidth.
-
-Uses raw CUDA API to test multi-node NVLink (MNNVL) communication between GPU pairs.
+A tool for testing multi-node NVLink (MNNVL) communication between GPU pairs.
+Can be thought of as an MPI-free, dynamic re-implementation of [nvbandwidth](https://github.com/NVIDIA/nvbandwidth).
 
 Supports adding and removing nodes/pods/GPUs at runtime.
 
-Leverages the elastic IMEX domain concept provided by NVIDIA's DRA Driver for GPUs (ComputeDomains).
+Originally built to demonstrate the elastic `ComputeDomain` concept provided by the [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu).
+
 
 ## Method
 
-This application is deployed as a Kubernetes StatefulSet.
-
-Each pod in this set runs a main loop which constantly repeats these steps:
+The application is deployed as a Kubernetes StatefulSet.
+Each pod in this set runs a main loop which repeats:
 1. **Discover** (all current peers)
 2. **Communicate** (pull memory from all remote GPUs into all local GPUs)
 3. **Report** (emit benchmark results)
 
-Measurement details:
-* The basic CUDA API calls used for building the communication core are `cuMemCreate()`,
-`cuMemExportToShareableHandle()`,
-`cuMemImportFromShareableHandle()`, `cuMemMap()`,
-`cuMemcpyDtoD()`.
+Measurement method:
 * After allocating local GPU memory, it is being prepared for multi-node NVLink exchange by creating a handle of type `CU_MEM_HANDLE_TYPE_FABRIC`.
-* What's being timed is `cuMemcpyDtoD()` (copying remote GPU memory into local GPU memory, in this case).
-* The duration is measured on-GPU via `cuEventRecord()` &`cuEventElapsedTime()`
+* The actual exchange is performed by `cuMemcpyDtoD()` (copying remote GPU memory into local GPU memory, in this case).
+* The duration is measured on-GPU via `cuEventRecord()` &`cuEventElapsedTime()`.
 * After each copy, a checksum kernel verifies data integrity of the transferred chunk.
-
+* Relevant CUDA API calls involved are `cuMemCreate()`,
+`cuMemExportToShareableHandle()`,
+`cuMemImportFromShareableHandle()`, `cuMemMap()` -- that's about it.
 
 ## Architecture
 
 **ack.py** — benchmark runner and HTTP server.
 
-Key subsystems:
+Key concepts:
 
-- Per-GPU HTTP-based locking ensures exclusive HBM access during measurement. Locks are acquired in consistent (pod_index, gpu_index) order to prevent deadlock, use random tokens so stale unlocks cannot release a re-acquired lock, and auto-expire via a watchdog thread to recover from crashed clients.
-- Fabric handle import cache avoids the expensive import/map/setAccess path (~35-100 ms) on every benchmark. Stale entries are evicted when handle bytes change (chunk refresh) or the peer disappears.
-- Deadline-based poll loop with parallel per-peer benchmarking (one thread per peer). Peers are discovered via DNS SRV lookup on the headless Service.
+- Per-GPU HTTP-based locking ensures exclusive GPU access during measurement. Locks are acquired in consistent (pod_index, gpu_index) order to prevent deadlock, use random tokens so stale unlocks cannot release a re-acquired lock, and auto-expire via a watchdog thread to recover from crashed clients.
+- A fabric handle import cache avoids the expensive import/map/setAccess path (~35-100 ms) on every benchmark. Stale entries are evicted when handle bytes change (chunk refresh) or the peer disappears.
+- A deadline-based poll loop with parallel per-peer benchmarking (one thread per peer). Peers are discovered via DNS SRV lookup on the headless Service.
 
 HTTP endpoints:
 
