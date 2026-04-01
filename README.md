@@ -101,3 +101,37 @@ Environment variables (set via the manifest):
 | `ACK_SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
 | `ACK_POLL_INTERVAL_S` | 1 | Seconds between benchmark rounds |
 | `ACK_GPUS_PER_NODE` | 1 | Number of GPUs per pod |
+
+## Profiling
+
+Each pod includes [yappi](https://github.com/sumerc/yappi) for CPU profiling, controllable via HTTP endpoints.
+
+Start profiling (measures CPU time across all threads):
+
+```
+curl -s http://<node-ip>:1337/debug/profile-start
+```
+
+Let it run for 30+ seconds, then stop and save the result:
+
+```
+curl -s http://<node-ip>:1337/debug/profile-stop
+kubectl cp ack-0:/tmp/profile.pstats ./profile.pstats
+```
+
+Inspect on the command line:
+
+```
+python3 -c "
+import pstats
+p = pstats.Stats('profile.pstats')
+p.sort_stats('tottime').print_stats(20)
+"
+```
+
+Or use [snakeviz](https://jiffyclub.github.io/snakeviz/) for an interactive browser-based flame graph:
+
+```
+pip install snakeviz
+snakeviz profile.pstats
+```
