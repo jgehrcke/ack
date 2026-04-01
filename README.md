@@ -14,7 +14,7 @@ Originally built to demonstrate the elastic `ComputeDomain` concept provided by 
 Deploy the workload:
 
 ```
-./run.sh <num_pods> [--chunk-mib N] [--gpus-per-pod N] [--interval N] [--gpus-via-dra]
+./run.sh <num_pods> [--chunk-mib N] [--gpus-per-pod N] [--interval-s N] [--gpus-via-dra]
 ```
 
 | Argument | Description |
@@ -22,7 +22,7 @@ Deploy the workload:
 | `num_pods` | Number of StatefulSet replicas (one pod per node). Required. |
 | `--chunk-mib N` | GPU memory chunk size in MiB per transfer (default: 2500, max: 4096). |
 | `--gpus-per-pod N` | GPUs per pod (default: 4). |
-| `--interval N` | Repeat peer discovery & benchmark every N seconds (default: 1). |
+| `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1). |
 | `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
 
 This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout.

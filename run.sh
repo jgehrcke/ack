@@ -11,7 +11,7 @@ usage() {
     echo "Options:"
     echo "  --chunk-mib N          GPU memory chunk size in MiB (default: 2500)"
     echo "  --gpus-per-pod N      GPUs per pod (default: 4)"
-    echo "  --interval N      seconds between benchmark rounds (default: 1)"
+    echo "  --interval-s N      run full benchmark (all-to-all) every N seconds (default: 1)"
     echo "  --gpus-via-dra              use DRA for GPU allocation instead of device plugin"
     exit 1
 }
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             ACK_CHUNK_MIB="$2"; shift 2 ;;
         --gpus-per-pod)
             ACK_GPUS_PER_NODE="$2"; shift 2 ;;
-        --interval)
+        --interval-s)
             ACK_POLL_INTERVAL_S="$2"; shift 2 ;;
         --gpus-via-dra)
             GPU_DRA=true; shift ;;
