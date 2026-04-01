@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.12"
-# dependencies = ["rich", "zstandard"]
+# requires-python = ">=3.14"
+# dependencies = ["rich"]
 # ///
 """
 TUI dashboard for ack — All-to-All CUDA Kubernetes test.
@@ -32,14 +32,19 @@ import tty
 import urllib.error
 import urllib.request
 
-import zstandard
+import compression.zstd
 
+
+# Dump C-level stack trace to the log file on SIGSEGV/SIGABRT.
+import faulthandler
+_dashboard_log_path = "/tmp/ack-dashboard.log"
+_faulthandler_file = open(_dashboard_log_path + ".fault", "w", buffering=1)
+faulthandler.enable(file=_faulthandler_file, all_threads=True)
 
 # Dashboard diagnostics go to a log file to avoid flickering caused by
 # stderr writes bleeding through the TUI's alternate screen buffer.
 # The log file path is printed to stderr on startup so the user knows
 # where to look.
-_dashboard_log_path = "/tmp/ack-dashboard.log"
 # Force immediate flush so crash diagnostics aren't lost in the buffer.
 _log_handler = logging.FileHandler(_dashboard_log_path, mode="w")
 _log_handler.setFormatter(logging.Formatter(
@@ -1055,9 +1060,6 @@ def cd_log_follower_spawner(cd_daemon_state, cd_log_state):
         time.sleep(2.0)
 
 
-_zstd_dctx = zstandard.ZstdDecompressor()
-
-
 def _fetch_pod_results(node_ip):
     """Fetch /results from a pod via node IP. Returns parsed JSON or None."""
     try:
@@ -1066,7 +1068,7 @@ def _fetch_pod_results(node_ip):
         with urllib.request.urlopen(req, timeout=0.5) as resp:
             data = resp.read()
             if resp.headers.get("Content-Encoding") == "zstd":
-                data = _zstd_dctx.decompress(data)
+                data = compression.zstd.decompress(data)
             return json.loads(data)
     except Exception:
         return None
