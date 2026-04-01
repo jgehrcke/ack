@@ -103,6 +103,14 @@ The StatefulSet can be scaled up or down at any time (`make scale-up`, `make sca
 
 A StatefulSet with ComputeDomain, headless Service, and DRA resource claims. One pod per node (enforced via `podAntiAffinity` on `kubernetes.io/hostname`), co-scheduled on the same GPU clique (via `podAffinity` on `nvidia.com/gpu.clique`). Each pod uses `hostPort: 1337`.
 
+## Container image
+
+The image is ~60 MB compressed (based on `ubuntu:24.04`, multi-stage build). It does not contain CUDA libraries — the checksum kernel is pre-compiled to PTX at build time, and NVRTC is not shipped.
+
+Assumptions about the target environment:
+- CUDA libraries (`libcuda.so`, etc.) are injected into the container at runtime via CDI.
+- The GPU driver must be >= 580.65 (CUDA 13.0), matching the NVRTC version used at build time. The checksum kernel PTX is compiled for `compute_80` (Ampere) and is forward-compatible with newer architectures.
+
 ## Makefile targets
 
 | Target | Description |
