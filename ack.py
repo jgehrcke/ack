@@ -120,7 +120,7 @@ from urllib.parse import urlparse, parse_qs
 import dns.resolver
 import orjson
 import yappi
-import zstandard
+import pyzstd
 
 from cuda.bindings import driver, runtime, nvrtc
 
@@ -252,9 +252,9 @@ def _http_do(method, host, port, path, timeout):
                 continue
             raise
 
-# zstd compressor for HTTP responses. Level 1: minimal CPU, good ratio on JSON.
-# ZstdCompressor is thread-safe for compress() calls.
-_zstd_cctx = zstandard.ZstdCompressor(level=1)
+# zstd compression level for HTTP responses. Level 8: invests more CPU
+# into reducing network traffic for /results responses.
+_ZSTD_LEVEL = 8
 
 # Configuration from environment.
 HTTPD_PORT = int(os.environ.get("ACK_HTTPD_PORT", "1337"))
@@ -1880,7 +1880,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         """
         accept = self.headers.get("Accept-Encoding", "")
         if "zstd" in accept:
-            body = _zstd_cctx.compress(body)
+            body = pyzstd.compress(body, _ZSTD_LEVEL)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Encoding", "zstd")
