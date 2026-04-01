@@ -3,7 +3,7 @@ kind: ComputeDomain
 metadata:
   name: ack-compute-domain
 spec:
-  numNodes: ${REPLICAS}
+  numNodes: ${ACK_REPLICAS}
   channel:
     resourceClaimTemplate:
       name: ack-compute-domain-rct
@@ -19,7 +19,7 @@ spec:
       - name: gpu
         exactly:
           deviceClassName: gpu.nvidia.com
-          count: ${GPUS_PER_NODE}
+          count: ${ACK_GPUS_PER_NODE}
 ---
 apiVersion: v1
 kind: Service
@@ -41,7 +41,7 @@ metadata:
 spec:
   serviceName: svc-ack
   podManagementPolicy: Parallel
-  replicas: ${REPLICAS}
+  replicas: ${ACK_REPLICAS}
   selector:
     matchLabels:
       app: ack
@@ -86,23 +86,23 @@ spec:
           # already enforce one pod per node via podAntiAffinity, this
           # is safe. Change if 1337 conflicts with other workloads.
         env:
-        - name: HTTPD_PORT
+        - name: ACK_HTTPD_PORT
           value: "1337"
-        - name: CHUNK_MIB
-          value: "${CHUNK_MIB}"
-        - name: FLOAT_VALUE
+        - name: ACK_CHUNK_MIB
+          value: "${ACK_CHUNK_MIB}"
+        - name: ACK_FLOAT_VALUE
           value: "1.0"
-        - name: SVC_NAME
+        - name: ACK_SVC_NAME
           value: "svc-ack"
-        - name: POLL_INTERVAL_S
-          value: "${POLL_INTERVAL_S}"
-        - name: GPUS_PER_NODE
-          value: "${GPUS_PER_NODE}"
-        - name: POD_NAMESPACE
+        - name: ACK_POLL_INTERVAL_S
+          value: "${ACK_POLL_INTERVAL_S}"
+        - name: ACK_GPUS_PER_NODE
+          value: "${ACK_GPUS_PER_NODE}"
+        - name: ACK_POD_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - name: NODE_NAME
+        - name: ACK_NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName

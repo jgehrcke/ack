@@ -12,10 +12,10 @@ if [[ $# -lt 2 ]]; then
     exit 1
 fi
 
-export REPLICAS="$1"
-export CHUNK_MIB="$2"
-export GPUS_PER_NODE="${3:-1}"
-export POLL_INTERVAL_S="${4:-1}"
+export ACK_REPLICAS="$1"
+export ACK_CHUNK_MIB="$2"
+export ACK_GPUS_PER_NODE="${3:-1}"
+export ACK_POLL_INTERVAL_S="${4:-1}"
 
 echo "--- Cleaning up previous resources (if any)"
 kubectl delete statefulset ack --ignore-not-found
@@ -32,8 +32,8 @@ else
     TEMPLATE="${SCRIPT_DIR}/ack.yaml.envsubst"
 fi
 
-echo "--- Rendering manifest: REPLICAS=${REPLICAS}, CHUNK_MIB=${CHUNK_MIB}, GPUS_PER_NODE=${GPUS_PER_NODE}, POLL_INTERVAL_S=${POLL_INTERVAL_S}"
-RENDERED=$(envsubst '${REPLICAS} ${CHUNK_MIB} ${GPUS_PER_NODE} ${POLL_INTERVAL_S}' < "$TEMPLATE")
+echo "--- Rendering manifest: ACK_REPLICAS=${ACK_REPLICAS}, ACK_CHUNK_MIB=${ACK_CHUNK_MIB}, ACK_GPUS_PER_NODE=${ACK_GPUS_PER_NODE}, ACK_POLL_INTERVAL_S=${ACK_POLL_INTERVAL_S}"
+RENDERED=$(envsubst '${ACK_REPLICAS} ${ACK_CHUNK_MIB} ${ACK_GPUS_PER_NODE} ${ACK_POLL_INTERVAL_S}' < "$TEMPLATE")
 
 echo "--- Applying manifest"
 echo "$RENDERED" | kubectl apply -f -

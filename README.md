@@ -95,9 +95,9 @@ Environment variables (set via the manifest):
 
 | Variable | Default | Description |
 |---|---|---|
-| `HTTPD_PORT` | 1337 | HTTP server port |
-| `CHUNK_MIB` | 2500 | GPU memory chunk size in MiB per allocation |
-| `FLOAT_VALUE` | 1.0 | Fill value for GPU memory (used for checksum verification) |
-| `SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
-| `POLL_INTERVAL_S` | 1 | Seconds between benchmark rounds |
-| `GPUS_PER_NODE` | 1 | Number of GPUs per pod |
+| `ACK_HTTPD_PORT` | 1337 | HTTP server port |
+| `ACK_CHUNK_MIB` | 2500 | GPU memory chunk size in MiB per allocation |
+| `ACK_FLOAT_VALUE` | 1.0 | Fill value for GPU memory (used for checksum verification) |
+| `ACK_SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
+| `ACK_POLL_INTERVAL_S` | 1 | Seconds between benchmark rounds |
+| `ACK_GPUS_PER_NODE` | 1 | Number of GPUs per pod |

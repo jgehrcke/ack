@@ -212,16 +212,16 @@ _http_session.mount("https://", HTTPAdapter(max_retries=0))
 _zstd_cctx = zstandard.ZstdCompressor(level=1)
 
 # Configuration from environment.
-HTTPD_PORT = int(os.environ.get("HTTPD_PORT", "1337"))
-CHUNK_MIB = int(os.environ.get("CHUNK_MIB", "2500"))
-FLOAT_VALUE = float(os.environ.get("FLOAT_VALUE", "1.0"))
-SVC_NAME = os.environ.get("SVC_NAME", "svc-ack")
-POLL_INTERVAL_S = int(os.environ.get("POLL_INTERVAL_S", "1"))
-GPUS_PER_NODE = int(os.environ.get("GPUS_PER_NODE", "1"))
+HTTPD_PORT = int(os.environ.get("ACK_HTTPD_PORT", "1337"))
+CHUNK_MIB = int(os.environ.get("ACK_CHUNK_MIB", "2500"))
+FLOAT_VALUE = float(os.environ.get("ACK_FLOAT_VALUE", "1.0"))
+SVC_NAME = os.environ.get("ACK_SVC_NAME", "svc-ack")
+POLL_INTERVAL_S = int(os.environ.get("ACK_POLL_INTERVAL_S", "1"))
+GPUS_PER_NODE = int(os.environ.get("ACK_GPUS_PER_NODE", "1"))
 K8S_PODNAME = socket.gethostname()
-K8S_NAMESPACE = os.environ.get("POD_NAMESPACE", "default")
-K8S_NODENAME = os.environ.get("NODE_NAME", "unknown")
-DTOD_REPEAT_COUNT = int(os.environ.get("DTOD_REPEAT_COUNT", "2"))
+K8S_NAMESPACE = os.environ.get("ACK_POD_NAMESPACE", "default")
+K8S_NODENAME = os.environ.get("ACK_NODE_NAME", "unknown")
+DTOD_REPEAT_COUNT = int(os.environ.get("ACK_DTOD_REPEAT_COUNT", "2"))
 CHECKSUM_REL_TOLERANCE = 1e-5
 
 # Per-GPU state, keyed by gpu_idx (0..GPUS_PER_NODE-1). Set during cuda_init().

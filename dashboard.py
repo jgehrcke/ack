@@ -318,12 +318,12 @@ def get_statefulset_info():
     data = kubectl_json(["get", "statefulset", "ack"])
     if not data:
         return None
-    # Extract GPUS_PER_NODE from container env vars.
+    # Extract ACK_GPUS_PER_NODE from container env vars.
     gpus = 1
     try:
         envs = data["spec"]["template"]["spec"]["containers"][0].get("env", [])
         for e in envs:
-            if e.get("name") == "GPUS_PER_NODE":
+            if e.get("name") == "ACK_GPUS_PER_NODE":
                 gpus = int(e["value"])
                 break
     except (KeyError, IndexError, ValueError):
