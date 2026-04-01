@@ -61,7 +61,12 @@ else
 fi
 
 echo "--- Rendering manifest: ACK_REPLICAS=${ACK_REPLICAS}, ACK_CHUNK_MIB=${ACK_CHUNK_MIB}, ACK_GPUS_PER_NODE=${ACK_GPUS_PER_NODE}, ACK_POLL_INTERVAL_S=${ACK_POLL_INTERVAL_S}"
-RENDERED=$(envsubst '${ACK_REPLICAS} ${ACK_CHUNK_MIB} ${ACK_GPUS_PER_NODE} ${ACK_POLL_INTERVAL_S}' < "$TEMPLATE")
+RENDERED=$(sed \
+    -e "s|\${ACK_REPLICAS}|${ACK_REPLICAS}|g" \
+    -e "s|\${ACK_CHUNK_MIB}|${ACK_CHUNK_MIB}|g" \
+    -e "s|\${ACK_GPUS_PER_NODE}|${ACK_GPUS_PER_NODE}|g" \
+    -e "s|\${ACK_POLL_INTERVAL_S}|${ACK_POLL_INTERVAL_S}|g" \
+    < "$TEMPLATE")
 
 echo "--- Applying manifest"
 echo "$RENDERED" | kubectl apply -f -

@@ -25,7 +25,7 @@ Originally built to demonstrate the elastic `ComputeDomain` concept provided by 
 | `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1). |
 | `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
 
-This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout.
+This cleans up previous resources, renders the manifest template, applies it, and waits for rollout.
 
 **2. Start the dashboard**
 
@@ -35,12 +35,14 @@ make dashboard
 
 **3. Scale up / down**
 
+Press `U` / `D` in the dashboard to scale up or down. Alternatively:
+
 ```
 make scale-up
 make scale-down
 ```
 
-Adjusts the StatefulSet replica count by one. New pods are discovered automatically; removed pods are drained gracefully.
+New pods are discovered automatically; removed pods are drained gracefully.
 
 To simulate a controlled node replacement (cordon + drain) or an unexpected node failure (force-kill pod + IMEX daemon), use the helper scripts:
 

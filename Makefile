@@ -23,7 +23,7 @@ profile:
 	@sleep 30
 	curl -s http://$(NODE_IP):1337/debug/profile-stop && echo
 	kubectl cp ack-0:/tmp/profile.pstats /tmp/profile.pstats
-	$(eval HOST_IP := $(shell hostname -I | awk '{print $$1}'))
+	$(eval HOST_IP := $(shell python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); print(s.getsockname()[0]); s.close()"))
 	$(eval SVPORT := $(shell python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"))
 	@echo "http://$(HOST_IP):$(SVPORT)/snakeviz/%2Ftmp%2Fprofile.pstats"
 	uv run --with snakeviz snakeviz --server --hostname 0.0.0.0 --port $(SVPORT) /tmp/profile.pstats
