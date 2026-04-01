@@ -4,9 +4,7 @@ All-to-all CUDA memory copy test for Kubernetes.
 
 A tool for testing multi-node NVLink (MNNVL) communication between GPU pairs.
 Can be thought of as an MPI-free, dynamic re-implementation of [nvbandwidth](https://github.com/NVIDIA/nvbandwidth).
-
 Supports adding and removing nodes/pods/GPUs at runtime.
-
 Originally built to demonstrate the elastic `ComputeDomain` concept provided by the [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu).
 
 
@@ -34,7 +32,7 @@ Measurement method:
 Key concepts:
 
 - Per-GPU HTTP-based locking ensures exclusive GPU access during measurement. Locks are acquired in consistent (pod_index, gpu_index) order to prevent deadlock, use random tokens so stale unlocks cannot release a re-acquired lock, and auto-expire via a watchdog thread to recover from crashed clients.
-- A fabric handle import cache avoids the expensive import/map/setAccess path (~35-100 ms) on every benchmark. Stale entries are evicted when handle bytes change (chunk refresh) or the peer disappears.
+- A fabric handle import cache avoids the expensive import/map/setAccess path (~35-100 ms) on every benchmark. The underlying GPU memory is reallocated every 30 seconds so that the exported fabric handle bytes change regularly, exercising the full IMEX export/import path rather than relying on a single allocation from startup. Stale cache entries are evicted when handle bytes change or the peer disappears.
 - A deadline-based poll loop with parallel per-peer benchmarking (one thread per peer). Peers are discovered via DNS SRV lookup on the headless Service.
 
 HTTP endpoints:
@@ -72,11 +70,19 @@ The StatefulSet can be scaled up or down at any time (`make scale-up`, `make sca
 
 A StatefulSet with ComputeDomain, headless Service, and DRA resource claims. One pod per node (enforced via `podAntiAffinity` on `kubernetes.io/hostname`), co-scheduled on the same GPU clique (via `podAffinity` on `nvidia.com/gpu.clique`). Each pod uses `hostPort: 1337`.
 
+## Usage
+
+Deploy the workload:
+
 ```
-./run.sh <num_pods> <chunk_mib> [gpus_per_node]
+./run.sh <num_pods> [--chunk-mib N] [--gpus-per-node N] [--poll-interval N] [--gpu-dra]
 ```
 
-This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout.
+This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout. Then start the dashboard to monitor bandwidth:
+
+```
+make dashboard
+```
 
 ## Makefile targets
 
@@ -86,6 +92,7 @@ This cleans up previous resources, renders the manifest via `envsubst`, applies 
 | `make build-and-push` | Build and push (tagged with git short rev) |
 | `make build-and-push-as-latest` | Build and push as both rev-tagged and `latest` |
 | `make dashboard` | Run the TUI dashboard via `uv run` |
+| `make profile` | Record 30s CPU profile on ack-0, open in snakeviz |
 | `make scale-up` / `scale-down` | Adjust StatefulSet replica count by 1 |
 | `make clean` | Delete StatefulSet, Service, and ComputeDomain |
 
