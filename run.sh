@@ -15,7 +15,7 @@ fi
 export REPLICAS="$1"
 export CHUNK_MIB="$2"
 export GPUS_PER_NODE="${3:-1}"
-export POLL_INTERVAL_S="${4:-3}"
+export POLL_INTERVAL_S="${4:-1}"
 
 echo "--- Cleaning up previous resources (if any)"
 kubectl delete statefulset ack --ignore-not-found

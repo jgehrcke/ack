@@ -99,5 +99,5 @@ Environment variables (set via the manifest):
 | `CHUNK_MIB` | 100 | GPU memory chunk size in MiB per allocation |
 | `FLOAT_VALUE` | 1.0 | Fill value for GPU memory (used for checksum verification) |
 | `SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
-| `POLL_INTERVAL_S` | 3 | Seconds between benchmark rounds |
+| `POLL_INTERVAL_S` | 1 | Seconds between benchmark rounds |
 | `GPUS_PER_NODE` | 1 | Number of GPUs per pod |
