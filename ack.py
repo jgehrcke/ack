@@ -256,17 +256,17 @@ def _http_do(method, host, port, path, timeout):
 # into reducing network traffic for /results responses.
 _ZSTD_LEVEL = 8
 
-# Configuration from environment.
-HTTPD_PORT = int(os.environ.get("ACK_HTTPD_PORT", "1337"))
-CHUNK_MIB = int(os.environ.get("ACK_CHUNK_MIB", "2500"))
-FLOAT_VALUE = float(os.environ.get("ACK_FLOAT_VALUE", "1.0"))
-SVC_NAME = os.environ.get("ACK_SVC_NAME", "svc-ack")
-POLL_INTERVAL_S = int(os.environ.get("ACK_POLL_INTERVAL_S", "1"))
-GPUS_PER_NODE = int(os.environ.get("ACK_GPUS_PER_NODE", "1"))
+# Configuration from environment. Set via the K8s manifest or run.sh.
+HTTPD_PORT = int(os.environ.get("ACK_HTTPD_PORT", "1337"))          # HTTP server port
+CHUNK_MIB = int(os.environ.get("ACK_CHUNK_MIB", "2500"))            # GPU memory chunk size in MiB
+FLOAT_VALUE = float(os.environ.get("ACK_FLOAT_VALUE", "1.0"))       # Fill value for GPU memory (checksum verification)
+SVC_NAME = os.environ.get("ACK_SVC_NAME", "svc-ack")                # Headless service name for DNS peer discovery
+POLL_INTERVAL_S = int(os.environ.get("ACK_POLL_INTERVAL_S", "1"))   # Seconds between benchmark rounds
+GPUS_PER_NODE = int(os.environ.get("ACK_GPUS_PER_NODE", "1"))       # Number of GPUs per pod
 K8S_PODNAME = socket.gethostname()
-K8S_NAMESPACE = os.environ.get("ACK_POD_NAMESPACE", "default")
-K8S_NODENAME = os.environ.get("ACK_NODE_NAME", "unknown")
-DTOD_REPEAT_COUNT = int(os.environ.get("ACK_DTOD_REPEAT_COUNT", "2"))
+K8S_NAMESPACE = os.environ.get("ACK_POD_NAMESPACE", "default")      # Pod namespace (from downward API)
+K8S_NODENAME = os.environ.get("ACK_NODE_NAME", "unknown")           # Node name (from downward API)
+DTOD_REPEAT_COUNT = int(os.environ.get("ACK_DTOD_REPEAT_COUNT", "2"))  # DtoD iterations per benchmark, report best
 CHECKSUM_REL_TOLERANCE = 1e-5
 
 # Per-GPU state, keyed by gpu_idx (0..GPUS_PER_NODE-1). Set during cuda_init().
@@ -1861,6 +1861,19 @@ def start_peer_poll_thread():
 
 
 class HTTPHandler(BaseHTTPRequestHandler):
+    """Each pod runs an HTTP server for peer coordination and observability.
+
+    Endpoints:
+      GET  /results        Last 5 rounds of structured benchmark data.
+      GET  /healthz        Liveness: fails on fatal CUDA error or stale results.
+      GET  /readyz         Readiness: confirms HTTP server is responsive.
+      GET  /prepare-chunk  Exports a fresh fabric handle for a GPU.
+      POST /lock-gpu       Acquires exclusive GPU lock, returns token.
+      POST /unlock-gpu     Releases GPU lock (token must match).
+      POST /evict-peer     Unmaps and releases cached imports of a peer's handles.
+      GET  /debug/profile-start  Start yappi CPU profiler.
+      GET  /debug/profile-stop   Stop profiler, save to /tmp/profile.pstats.
+    """
     # HTTP/1.1 enables persistent connections (keep-alive).
     protocol_version = "HTTP/1.1"
 

@@ -7,14 +7,23 @@ Can be thought of as an MPI-free, dynamic re-implementation of [nvbandwidth](htt
 Supports adding and removing nodes/pods/GPUs at runtime.
 Originally built to demonstrate the elastic `ComputeDomain` concept provided by the [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu).
 
+![Dashboard](screenshot.png)
 
 ## Usage
 
 Deploy the workload:
 
 ```
-./run.sh <num_pods> [--chunk-mib N] [--gpus-per-node N] [--poll-interval N] [--gpu-dra]
+./run.sh <num_pods> [--chunk-mib N] [--gpus-per-pod N] [--interval N] [--gpus-via-dra]
 ```
+
+| Argument | Description |
+|---|---|
+| `num_pods` | Number of StatefulSet replicas (one pod per node). Required. |
+| `--chunk-mib N` | GPU memory chunk size in MiB per transfer (default: 2500, max: 4096). |
+| `--gpus-per-pod N` | GPUs per pod (default: 4). |
+| `--interval N` | Repeat peer discovery & benchmark every N seconds (default: 1). |
+| `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
 
 This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout.
 
@@ -41,27 +50,15 @@ Measurement method:
 `cuMemExportToShareableHandle()`,
 `cuMemImportFromShareableHandle()`, `cuMemMap()` -- that's about it.
 
-## Architecture
+## Components
 
-**ack.py** — benchmark runner and HTTP server.
+**ack.py** — benchmark runner, runs in each StatefulSet pod.
 
 Key concepts:
 
 - Per-GPU HTTP-based locking ensures exclusive GPU access during measurement. Locks are acquired in consistent (pod_index, gpu_index) order to prevent deadlock, use random tokens so stale unlocks cannot release a re-acquired lock, and auto-expire via a watchdog thread to recover from crashed clients.
 - A fabric handle import cache avoids the expensive import/map/setAccess path (~35-100 ms) on every benchmark. The underlying GPU memory is reallocated every 30 seconds so that the exported fabric handle bytes change regularly, exercising the full IMEX export/import path rather than relying on a single allocation from startup. Stale cache entries are evicted when handle bytes change or the peer disappears.
 - A deadline-based poll loop with parallel per-peer benchmarking (one thread per peer). Peers are discovered via DNS SRV lookup on the headless Service.
-
-HTTP endpoints:
-
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/results` | GET | Last 5 rounds of structured benchmark data |
-| `/healthz` | GET | Liveness: fails on fatal CUDA error or stale results |
-| `/readyz` | GET | Readiness: confirms HTTP server is responsive |
-| `/prepare-chunk` | GET | Exports a fresh fabric handle for a GPU |
-| `/lock-gpu` | POST | Acquires exclusive GPU lock, returns token |
-| `/unlock-gpu` | POST | Releases GPU lock (token must match) |
-| `/evict-peer` | POST | Unmaps and releases cached imports of a peer's handles |
 
 **dashboard.py** — Rich TUI with four panels:
 
@@ -97,19 +94,6 @@ A StatefulSet with ComputeDomain, headless Service, and DRA resource claims. One
 | `make profile` | Record 30s CPU profile on ack-0, open in snakeviz |
 | `make scale-up` / `scale-down` | Adjust StatefulSet replica count by 1 |
 | `make clean` | Delete StatefulSet, Service, and ComputeDomain |
-
-## Configuration
-
-Environment variables (set via the manifest):
-
-| Variable | Default | Description |
-|---|---|---|
-| `ACK_HTTPD_PORT` | 1337 | HTTP server port |
-| `ACK_CHUNK_MIB` | 2500 | GPU memory chunk size in MiB per allocation |
-| `ACK_FLOAT_VALUE` | 1.0 | Fill value for GPU memory (used for checksum verification) |
-| `ACK_SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
-| `ACK_POLL_INTERVAL_S` | 1 | Seconds between benchmark rounds |
-| `ACK_GPUS_PER_NODE` | 1 | Number of GPUs per pod |
 
 ## Profiling
 

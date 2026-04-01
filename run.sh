@@ -10,9 +10,9 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --chunk-mib N          GPU memory chunk size in MiB (default: 2500)"
-    echo "  --gpus-per-node N      GPUs per pod (default: 4)"
-    echo "  --poll-interval N      seconds between benchmark rounds (default: 1)"
-    echo "  --gpu-dra              use DRA for GPU allocation instead of device plugin"
+    echo "  --gpus-per-pod N      GPUs per pod (default: 4)"
+    echo "  --interval N      seconds between benchmark rounds (default: 1)"
+    echo "  --gpus-via-dra              use DRA for GPU allocation instead of device plugin"
     exit 1
 }
 
@@ -33,11 +33,11 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --chunk-mib)
             ACK_CHUNK_MIB="$2"; shift 2 ;;
-        --gpus-per-node)
+        --gpus-per-pod)
             ACK_GPUS_PER_NODE="$2"; shift 2 ;;
-        --poll-interval)
+        --interval)
             ACK_POLL_INTERVAL_S="$2"; shift 2 ;;
-        --gpu-dra)
+        --gpus-via-dra)
             GPU_DRA=true; shift ;;
         *)
             echo "Unknown option: $1"
