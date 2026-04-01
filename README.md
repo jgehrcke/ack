@@ -135,3 +135,13 @@ Or use [snakeviz](https://jiffyclub.github.io/snakeviz/) for an interactive brow
 pip install snakeviz
 snakeviz profile.pstats
 ```
+
+Or use `make profile` to automate the full workflow (start, wait 30s, stop, copy, open snakeviz).
+
+### Live top view with py-spy
+
+Each pod also includes [py-spy](https://github.com/benfred/py-spy) for a live `top`-like view of Python function call times:
+
+```
+kubectl exec -it ack-0 -- py-spy top --pid 1
+```

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.9.1-base-ubuntu24.04
+FROM nvidia/cuda:13.2.0-base-ubuntu24.04
 
 # Install Ubuntu 24's system Python (3.12).
 RUN <<EOT
@@ -14,7 +14,7 @@ WORKDIR /ack
 
 RUN python3.12 -m venv .venv
 ENV PATH="/ack/.venv/bin:${PATH}"
-RUN pip install cuda-python[all]==12.9.6 dnspython orjson zstandard py-spy yappi
+RUN pip install cuda-python[all]==13.2.0 dnspython orjson zstandard py-spy yappi
 
 COPY ./ack.py /ack
 

@@ -1252,7 +1252,7 @@ def map_imported_chunk(alloc_handle, alloc_size: int, gpu_idx: int) -> int:
     return va_ptr
 
 
-def _poll_event(event):
+def _poll_cuda_event(event):
     """Wait for a CUDA event to complete by polling with sleep.
 
     Yields the CPU instead of spin-waiting in the driver. The GPU-side
@@ -1306,7 +1306,7 @@ def verify_chunk_on_gpu(local_gpu_idx: int, va_ptr: int, alloc_size: int,
         cucheck(driver.cuEventRecord(ev_start, 0))
         cucheck(driver.cuMemcpyDtoD(local_buf, va_ptr, alloc_size))
         cucheck(driver.cuEventRecord(ev_end, 0))
-        _poll_event(ev_end)
+        _poll_cuda_event(ev_end)
         durations_ms.append(cucheck(driver.cuEventElapsedTime(ev_start, ev_end)))
     cucheck(driver.cuEventDestroy(ev_start))
     cucheck(driver.cuEventDestroy(ev_end))
