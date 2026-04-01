@@ -1,11 +1,10 @@
 # ACK
 
-All-to-all CUDA memory copy test for Kubernetes.
+*All-to-all CUDA memcopy test for Kubernetes.*
 
-For testing multi-node NVLink (MNNVL) communication between GPUs.
-Can be thought of as an MPI-free, dynamic re-implementation of [nvbandwidth](https://github.com/NVIDIA/nvbandwidth).
-Supports adding and removing nodes/pods/GPUs at runtime.
-Originally built to demonstrate the elastic `ComputeDomain` concept provided by the [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu).
+Tests multi-node NVLink (MNNVL) communication between GPUs. Supports adding and removing GPUs at runtime (designed as a k8s-oriented, MPI-free, dynamic alternative to [nvbandwidth](https://github.com/NVIDIA/nvbandwidth)).
+
+Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu)).
 
 ![Dashboard](screenshot.png)
 
