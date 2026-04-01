@@ -122,7 +122,7 @@ import orjson
 import yappi
 import pyzstd
 
-from cuda.bindings import driver, runtime, nvrtc
+from cuda.bindings import driver
 
 
 class AckError(Exception):
@@ -158,12 +158,10 @@ _FATAL_CUDA_CODES = (
 
 
 def _cuda_get_error_name(error):
-    """Get human-readable name for a CUDA or NVRTC error code."""
+    """Get human-readable name for a CUDA error code."""
     if isinstance(error, driver.CUresult):
         err, name = driver.cuGetErrorName(error)
         return name if err == driver.CUresult.CUDA_SUCCESS else "<unknown>"
-    elif isinstance(error, nvrtc.nvrtcResult):
-        return nvrtc.nvrtcGetErrorString(error)[1]
     else:
         raise RuntimeError(f"Unknown error type: {error}")
 
@@ -445,10 +443,6 @@ def main():
              GPUS_PER_NODE)
 
     log.info("cuDriverGetVersion(): %s", cucheck(driver.cuDriverGetVersion()))
-    log.info(
-        "getLocalRuntimeVersion(): %s",
-        cucheck(runtime.getLocalRuntimeVersion()),
-    )
 
     for k, v in os.environ.items():
         if "CUDA" in k or "NVIDIA" in k:
@@ -526,8 +520,8 @@ def cuda_init():
     """
     cucheck(driver.cuInit(0))
 
-    devcount = cucheck(runtime.cudaGetDeviceCount())
-    log.info("cudaGetDeviceCount(): %s, GPUS_PER_NODE: %s", devcount, GPUS_PER_NODE)
+    devcount = cucheck(driver.cuDeviceGetCount())
+    log.info("cuDeviceGetCount(): %s, GPUS_PER_NODE: %s", devcount, GPUS_PER_NODE)
     assert devcount >= GPUS_PER_NODE, \
         f"GPUS_PER_NODE={GPUS_PER_NODE} but only {devcount} devices visible"
 
@@ -583,7 +577,7 @@ def cuda_init():
         log.info("GPU %d: allocation granularity: %s bytes", gpu_idx, GRANULARITIES[gpu_idx])
 
         # Compile checksum kernel for this GPU's context.
-        compile_checksum_kernel(gpu_idx)
+        load_checksum_kernel(gpu_idx)
 
         # Pre-allocate verify buffers on this GPU.
         preallocate_verify_buffers(gpu_idx)
@@ -649,34 +643,25 @@ void checksum(const float* __restrict__ data, int n, double* out) {
 """
 
 
-def compile_checksum_kernel(gpu_idx):
-    """Compile the checksum kernel via NVRTC and load it into the current context.
+def load_checksum_kernel(gpu_idx):
+    """Load the pre-compiled checksum kernel PTX into the current context.
+
+    The PTX is compiled at image build time for compute_80 (Ampere).
+    The driver JIT-compiles it to the target GPU at load time.
 
     Precondition: the GPU's CUDA context must be pushed on the calling thread.
 
     Raises:
-        RuntimeError: On NVRTC compilation failure (includes compiler log).
         CudaError: On module load or function lookup failure.
     """
-    prog = check_nvrtc_errors(nvrtc.nvrtcCreateProgram(
-        CHECKSUM_KERNEL_SRC.encode("utf-8"), b"checksum.cu", 0, [], [],
-    ))
-    try:
-        check_nvrtc_errors(nvrtc.nvrtcCompileProgram(prog, 0, []))
-    except RuntimeError:
-        log_size = check_nvrtc_errors(nvrtc.nvrtcGetProgramLogSize(prog))
-        log_buf = b" " * log_size
-        check_nvrtc_errors(nvrtc.nvrtcGetProgramLog(prog, log_buf))
-        raise RuntimeError(f"NVRTC compile failed:\n{log_buf.decode()}")
-
-    ptx_size = check_nvrtc_errors(nvrtc.nvrtcGetPTXSize(prog))
-    ptx = b" " * ptx_size
-    check_nvrtc_errors(nvrtc.nvrtcGetPTX(prog, ptx))
-
+    ptx_path = os.path.join(os.path.dirname(__file__), "checksum.ptx")
+    with open(ptx_path, "rb") as f:
+        ptx = f.read()
     module = cucheck(driver.cuModuleLoadData(ptx))
     CHECKSUM_KERNELS[gpu_idx] = cucheck(
         driver.cuModuleGetFunction(module, b"checksum"))
-    log.info("GPU %d: compiled and loaded checksum kernel", gpu_idx)
+    log.info("GPU %d: loaded checksum kernel from %s (%d bytes)",
+             gpu_idx, ptx_path, len(ptx))
 
 
 def preallocate_verify_buffers(gpu_idx):
@@ -703,17 +688,6 @@ def preallocate_verify_buffers(gpu_idx):
     log.info("GPU %d: pre-allocated verify buffers: local_buf=%d bytes, partials=%d bytes",
              gpu_idx, alloc_size, partials_size)
 
-
-def check_nvrtc_errors(result):
-    """Unwrap an NVRTC API result tuple. Raises RuntimeError on failure."""
-    if result[0].value:
-        raise RuntimeError(f"NVRTC error: {result[0]}")
-    if len(result) == 1:
-        return None
-    elif len(result) == 2:
-        return result[1]
-    else:
-        return result[1:]
 
 
 def ensure_cuda_context(gpu_idx):
@@ -2150,25 +2124,15 @@ def log_imex_state():
 
 
 def log_device_properties():
-    _attr_filter = ["name", "pci", "uuid", "multi", "minor", "major"]
-
     for gpu_idx in range(GPUS_PER_NODE):
         ensure_cuda_context(gpu_idx)
-        props = cucheck(runtime.cudaGetDeviceProperties(gpu_idx))
-
-        printprops = {}
-        for k in dir(props):
-            if not any(k.startswith(prefix) for prefix in _attr_filter):
-                continue
-            v = getattr(props, k)
-            if k == "uuid":
-                try:
-                    v = uuid.UUID(bytes=v.bytes)
-                except ValueError:
-                    log.warning("unexpected UUID bytes: %s", v.bytes)
-            printprops[k] = v
-
-        log.info("GPU %d properties:\n%s", gpu_idx, pformat(printprops))
+        name = cucheck(driver.cuDeviceGetName(256, CUDEVS[gpu_idx]))
+        dev_uuid = cucheck(driver.cuDeviceGetUuid(CUDEVS[gpu_idx]))
+        try:
+            uid = uuid.UUID(bytes=bytes(dev_uuid.bytes))
+        except (ValueError, TypeError):
+            uid = dev_uuid
+        log.info("GPU %d: name=%s uuid=%s", gpu_idx, name, uid)
         pop_cuda_context()
 
 
