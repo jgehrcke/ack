@@ -213,7 +213,7 @@ _zstd_cctx = zstandard.ZstdCompressor(level=1)
 
 # Configuration from environment.
 HTTPD_PORT = int(os.environ.get("HTTPD_PORT", "1337"))
-CHUNK_MIB = int(os.environ.get("CHUNK_MIB", "100"))
+CHUNK_MIB = int(os.environ.get("CHUNK_MIB", "2500"))
 FLOAT_VALUE = float(os.environ.get("FLOAT_VALUE", "1.0"))
 SVC_NAME = os.environ.get("SVC_NAME", "svc-ack")
 POLL_INTERVAL_S = int(os.environ.get("POLL_INTERVAL_S", "1"))

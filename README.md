@@ -96,7 +96,7 @@ Environment variables (set via the manifest):
 | Variable | Default | Description |
 |---|---|---|
 | `HTTPD_PORT` | 1337 | HTTP server port |
-| `CHUNK_MIB` | 100 | GPU memory chunk size in MiB per allocation |
+| `CHUNK_MIB` | 2500 | GPU memory chunk size in MiB per allocation |
 | `FLOAT_VALUE` | 1.0 | Fill value for GPU memory (used for checksum verification) |
 | `SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
 | `POLL_INTERVAL_S` | 1 | Seconds between benchmark rounds |
