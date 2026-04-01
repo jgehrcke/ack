@@ -2,7 +2,7 @@
 
 All-to-all CUDA memory copy test for Kubernetes.
 
-A tool for testing multi-node NVLink (MNNVL) communication between GPU pairs.
+For testing multi-node NVLink (MNNVL) communication between GPUs.
 Can be thought of as an MPI-free, dynamic re-implementation of [nvbandwidth](https://github.com/NVIDIA/nvbandwidth).
 Supports adding and removing nodes/pods/GPUs at runtime.
 Originally built to demonstrate the elastic `ComputeDomain` concept provided by the [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu).
@@ -37,18 +37,20 @@ make dashboard
 
 The application is deployed as a Kubernetes StatefulSet.
 Each pod in this set runs a main loop which repeats:
-1. **Discover** (all current peers)
-2. **Communicate** (pull memory from all remote GPUs into all local GPUs)
-3. **Report** (emit benchmark results)
+1. **Discover**: get current peers
+2. **Communicate**: pull memory from all remote GPUs into all local GPUs
+3. **Report**: construct benchmark results
 
-Measurement method:
-* After allocating local GPU memory, it is being prepared for multi-node NVLink exchange by creating a handle of type `CU_MEM_HANDLE_TYPE_FABRIC`.
-* The actual exchange is performed by `cuMemcpyDtoD()` (copying remote GPU memory into local GPU memory, in this case).
-* The duration is measured on-GPU via `cuEventRecord()` &`cuEventElapsedTime()`.
-* After each copy, a checksum kernel verifies data integrity of the transferred chunk.
-* Relevant CUDA API calls involved are `cuMemCreate()`,
-`cuMemExportToShareableHandle()`,
-`cuMemImportFromShareableHandle()`, `cuMemMap()` -- that's about it.
+Details about allocation, transfer, measurement:
+
+* A chunk of local GPU memory gets allocated with `cuMemCreate()`.
+* The chunk is prepared for MNNVL exchange by calling `cuMemExportToShareableHandle()`.
+* The resulting handle of type `CU_MEM_HANDLE_TYPE_FABRIC` is shared with a peer via HTTP.
+* The peer calls`cuMemImportFromShareableHandle()` and subsequently maps memory with `cuMemMap()` (note that at this point, no memory _content_ has been communicated yet).
+* The actual payload exchange is performed by calling `cuMemcpyDtoD()` which in this case is copying remote GPU memory into local GPU memory.
+* The DtoD operation duration is measured on-GPU via `cuEventRecord()` & `cuEventElapsedTime()`.
+* Each copy is verified by running a checksum kernel.
+
 
 ## Components
 
