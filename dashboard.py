@@ -18,7 +18,6 @@ pod's /results HTTP endpoint via node IP + hostPort. Press Ctrl-C to quit.
 
 import concurrent.futures
 import datetime
-import fcntl
 import json
 import logging
 import os
@@ -1269,11 +1268,12 @@ def main():
 
     console = Console()
 
-    old_term = termios.tcgetattr(sys.stdin)
-    tty.setcbreak(sys.stdin.fileno())
-    stdin_fd = sys.stdin.fileno()
-    fcntl.fcntl(stdin_fd, fcntl.F_SETFL,
-                fcntl.fcntl(stdin_fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+    # Open a separate fd for keyboard input so O_NONBLOCK does not
+    # propagate to stdout (they share the same TTY file description
+    # when using sys.stdin, causing BlockingIOError in Rich writes).
+    tty_fd = os.open("/dev/tty", os.O_RDONLY | os.O_NONBLOCK)
+    old_term = termios.tcgetattr(tty_fd)
+    tty.setcbreak(tty_fd)
 
     last_heartbeat = 0
 
@@ -1293,7 +1293,7 @@ def main():
 
                 # --- Handle keyboard input ---
                 try:
-                    key = os.read(stdin_fd, 1)
+                    key = os.read(tty_fd, 1)
                     if key in (b"q", b"Q", b"\x03"):
                         break
                     elif key in (b"u", b"U"):
@@ -1360,9 +1360,10 @@ def main():
         finally:
             # Always restore terminal and clean up, regardless of exit path.
             try:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_term)
+                termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_term)
             except Exception:
                 dlog.warning("failed to restore terminal settings")
+            os.close(tty_fd)
 
     # Print final status to stdout (visible after TUI exits).
     dlog.warning("dashboard exiting")
