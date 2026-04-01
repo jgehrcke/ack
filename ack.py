@@ -586,63 +586,6 @@ def cuda_init():
         cucheck(driver.cuCtxPopCurrent())
 
 
-# CUDA kernel that sums all float32 values in the input array.
-#
-# Design choices optimized for maximizing NVLink read bandwidth:
-#
-# - Plain double accumulation instead of Kahan compensated summation.
-#   Kahan adds 3 extra ALU ops per load (subtract, add, subtract) which
-#   throttles the rate at which threads can issue new memory requests.
-#   Double precision (~15 decimal digits) is more than sufficient for
-#   summing float32 values without compensation.
-#
-# - __ldg() intrinsic to route loads through the read-only texture cache
-#   path, which can improve throughput for read-only access patterns.
-#
-# - 4x loop unrolling to increase instruction-level parallelism and keep
-#   more memory requests in flight per thread.
-#
-# - Launched with 4 blocks per SM (set at runtime) to maximize occupancy
-#   and give the warp scheduler enough warps to hide NVLink latency.
-#
-# Each block reduces to a partial sum in shared memory. The host sums the
-# partial results (a few hundred doubles — trivial).
-CHECKSUM_KERNEL_SRC = r"""
-extern "C" __global__
-void checksum(const float* __restrict__ data, int n, double* out) {
-    __shared__ double ssum[256];
-    int tid = threadIdx.x;
-    int gid = blockIdx.x * blockDim.x + tid;
-    int stride = blockDim.x * gridDim.x;
-    double sum = 0.0;
-
-    // Unrolled loop: process 4 elements per iteration to increase
-    // instruction-level parallelism and keep more loads in flight.
-    int i = gid;
-    for (; i + 3 * stride < n; i += 4 * stride) {
-        sum += (double)__ldg(&data[i]);
-        sum += (double)__ldg(&data[i + stride]);
-        sum += (double)__ldg(&data[i + 2 * stride]);
-        sum += (double)__ldg(&data[i + 3 * stride]);
-    }
-    // Handle remaining elements.
-    for (; i < n; i += stride) {
-        sum += (double)__ldg(&data[i]);
-    }
-
-    ssum[tid] = sum;
-    __syncthreads();
-    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
-        if (tid < s)
-            ssum[tid] += ssum[tid + s];
-        __syncthreads();
-    }
-    if (tid == 0)
-        out[blockIdx.x] = ssum[0];
-}
-"""
-
-
 def load_checksum_kernel(gpu_idx):
     """Load the pre-compiled checksum kernel PTX into the current context.
 
