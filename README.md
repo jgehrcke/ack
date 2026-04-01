@@ -1,10 +1,10 @@
-# ATACK — All-To-All raw CUDA API-based MNNVL test runner for Kubernetes
+# ACK — All-To-All raw CUDA API-based MNNVL test runner for Kubernetes
 
 Measures NVLink bandwidth between all cross-node GPU pairs in a Kubernetes StatefulSet. Uses CUDA fabric handles exported via IMEX for cross-node GPU memory access. Only cross-node pairs are benchmarked — GPUs on the same node are skipped.
 
 ## Architecture
 
-**atack.py** — benchmark runner and HTTP server.
+**ack.py** — benchmark runner and HTTP server.
 
 Each pod allocates GPU memory, exports `CU_MEM_HANDLE_TYPE_FABRIC` handles, and benchmarks `cuMemcpyDtoD` bandwidth to every remote GPU. Transfer duration is measured on-GPU via `cuEventRecord`/`cuEventElapsedTime`, reflecting pure NVLink transfer time. After each copy, a GPU-side checksum kernel verifies data integrity of the transferred chunk.
 
@@ -28,7 +28,7 @@ HTTP endpoints:
 
 **dashboard.py** — Rich TUI with four panels:
 
-- Pods: live status of atack StatefulSet pods
+- Pods: live status of ack StatefulSet pods
 - ComputeDomain daemons: status of `computedomain-daemon` pods
 - ComputeDomain status: node-level CD state
 - Bandwidth matrix: NVLink bandwidth (GB/s) between all GPU pairs
@@ -75,6 +75,6 @@ Environment variables (set via the manifest):
 | `HTTPD_PORT` | 1337 | HTTP server port |
 | `CHUNK_MIB` | 100 | GPU memory chunk size in MiB per allocation |
 | `FLOAT_VALUE` | 1.0 | Fill value for GPU memory (used for checksum verification) |
-| `SVC_NAME` | svc-atack | Headless service name for DNS peer discovery |
+| `SVC_NAME` | svc-ack | Headless service name for DNS peer discovery |
 | `POLL_INTERVAL_S` | 3 | Seconds between benchmark rounds |
 | `GPUS_PER_NODE` | 1 | Number of GPUs per pod |

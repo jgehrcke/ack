@@ -1,5 +1,5 @@
 """
-ATACK — All-To-All raw CUDA API-based MNNVL test runner for Kubernetes.
+ACK — All-To-All raw CUDA API-based MNNVL test runner for Kubernetes.
 
 Measures NVLink bandwidth between all cross-node GPU pairs in a
 Kubernetes StatefulSet. GPUs within the same node are not benchmarked
@@ -125,19 +125,19 @@ from requests.adapters import HTTPAdapter
 from cuda.bindings import driver, runtime, nvrtc
 
 
-class AtackError(Exception):
-    """Base exception for atack application errors."""
+class AckError(Exception):
+    """Base exception for ack application errors."""
 
 
-class CudaError(AtackError):
+class CudaError(AckError):
     """Raised by cucheck() for CUDA API failures."""
 
 
-class LockError(AtackError):
+class LockError(AckError):
     """Raised when GPU lock acquisition fails (timeout, connection error)."""
 
 
-class PeerUnreachableError(AtackError):
+class PeerUnreachableError(AckError):
     """Raised when a peer pod cannot be reached (DNS failure, connection refused).
     The caller should skip all remaining GPU pairs for this peer."""
 
@@ -215,7 +215,7 @@ _zstd_cctx = zstandard.ZstdCompressor(level=1)
 HTTPD_PORT = int(os.environ.get("HTTPD_PORT", "1337"))
 CHUNK_MIB = int(os.environ.get("CHUNK_MIB", "100"))
 FLOAT_VALUE = float(os.environ.get("FLOAT_VALUE", "1.0"))
-SVC_NAME = os.environ.get("SVC_NAME", "svc-atack")
+SVC_NAME = os.environ.get("SVC_NAME", "svc-ack")
 POLL_INTERVAL_S = int(os.environ.get("POLL_INTERVAL_S", "3"))
 GPUS_PER_NODE = int(os.environ.get("GPUS_PER_NODE", "1"))
 K8S_PODNAME = socket.gethostname()
@@ -2016,7 +2016,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         pass
 
 
-class _ATACKHTTPServer(ThreadingHTTPServer):
+class _AckHTTPServer(ThreadingHTTPServer):
     # Allow many queued connections — with N pods × M GPUs, many lock
     # requests arrive concurrently. Default of 5 causes connection refused.
     request_queue_size = 128
@@ -2033,7 +2033,7 @@ class _ATACKHTTPServer(ThreadingHTTPServer):
 def run_httpd_in_thread():
     def run():
         log.info("starting HTTP server on port %s", HTTPD_PORT)
-        s = _ATACKHTTPServer(("0.0.0.0", HTTPD_PORT), HTTPHandler)
+        s = _AckHTTPServer(("0.0.0.0", HTTPD_PORT), HTTPHandler)
         s.serve_forever()
 
     t = threading.Thread(target=run, daemon=True)

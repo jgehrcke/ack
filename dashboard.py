@@ -4,10 +4,10 @@
 # dependencies = ["rich", "zstandard"]
 # ///
 """
-TUI dashboard for atack — All-to-All CUDA Kubernetes test.
+TUI dashboard for ack — All-to-All CUDA Kubernetes test.
 
 Displays four panels:
-  - Pods: live status of atack StatefulSet pods
+  - Pods: live status of ack StatefulSet pods
   - ComputeDomain daemons: status of computedomain-daemon pods
   - ComputeDomain status: node-level CD state
   - Bandwidth matrix: NVLink bandwidth (GB/s) between all GPU pairs
@@ -40,7 +40,7 @@ import zstandard
 # stderr writes bleeding through the TUI's alternate screen buffer.
 # The log file path is printed to stderr on startup so the user knows
 # where to look.
-_dashboard_log_path = "/tmp/atack-dashboard.log"
+_dashboard_log_path = "/tmp/ack-dashboard.log"
 # Force immediate flush so crash diagnostics aren't lost in the buffer.
 _log_handler = logging.FileHandler(_dashboard_log_path, mode="w")
 _log_handler.setFormatter(logging.Formatter(
@@ -149,9 +149,9 @@ def _get_liveness_failure_events(pod_uids):
     return result
 
 
-def get_atack_pods():
+def get_ack_pods():
     """Return list of dicts: [{name, idx, node, status, ...}, ...]."""
-    data = kubectl_json(["get", "pods", "-l", "app=atack"])
+    data = kubectl_json(["get", "pods", "-l", "app=ack"])
     if not data or "items" not in data:
         return []
     # Build UID map for filtering events to current pod incarnations.
@@ -296,7 +296,7 @@ def get_cd_daemons():
 
 def get_cd_status():
     """Return dict with ComputeDomain status: {overall, nodes: [{index, name, status}]}."""
-    data = kubectl_json(["get", "computedomain", "atack-compute-domain"])
+    data = kubectl_json(["get", "computedomain", "ack-compute-domain"])
     if not data or "status" not in data:
         return {"overall": "?", "nodes": []}
     st = data["status"]
@@ -315,7 +315,7 @@ def get_cd_status():
 
 def get_statefulset_info():
     """Return StatefulSet metadata: gpus_per_node, generation, age."""
-    data = kubectl_json(["get", "statefulset", "atack"])
+    data = kubectl_json(["get", "statefulset", "ack"])
     if not data:
         return None
     # Extract GPUS_PER_NODE from container env vars.
@@ -355,19 +355,19 @@ def get_statefulset_info():
 # ---------------------------------------------------------------------------
 
 def scale_statefulset(delta):
-    """Scale atack statefulset by delta (+1 or -1). Runs in a background
+    """Scale ack statefulset by delta (+1 or -1). Runs in a background
     thread to avoid blocking the render loop."""
     def _do_scale():
         try:
             out = subprocess.check_output(
-                ["kubectl", "get", "statefulset", "atack",
+                ["kubectl", "get", "statefulset", "ack",
                  "-o", "jsonpath={.spec.replicas}"],
                 stderr=subprocess.PIPE, timeout=5,
             )
             current = int(out.decode().strip())
             target = max(0, current + delta)
             subprocess.check_output(
-                ["kubectl", "scale", "statefulset", "atack",
+                ["kubectl", "scale", "statefulset", "ack",
                  f"--replicas={target}"],
                 stderr=subprocess.PIPE, timeout=5,
             )
@@ -427,7 +427,7 @@ def status_color(status):
     return "red"
 
 
-def build_pods_table(atack_pods):
+def build_pods_table(ack_pods):
     table = Table(show_header=True, header_style="bold dim", box=None,
                   pad_edge=False, show_edge=False, padding=(0, 1))
     table.add_column("Pod", no_wrap=True)
@@ -438,7 +438,7 @@ def build_pods_table(atack_pods):
     table.add_column("Liveness (direct)", no_wrap=True)
     table.add_column("Liveness (fail event)", no_wrap=True)
     table.add_column("Last Result", no_wrap=True)
-    for p in atack_pods:
+    for p in ack_pods:
         color = status_color(p["status"])
         probe = p.get("direct_probe", "")
         probe_age = ""
@@ -470,7 +470,7 @@ def build_pods_table(atack_pods):
                       restarts_text, probe_text, liveness,
                       last_result_text)
 
-    if not atack_pods:
+    if not ack_pods:
         table.add_row("no pods", "", "", "", "", "", "", "")
 
     return Panel(table, title="Workload Pods", title_align="left",
@@ -693,7 +693,7 @@ def build_header():
     )
 
 
-def build_layout(atack_pods, cd_daemons, cd_status, latest_matrix, pod_nodes,
+def build_layout(ack_pods, cd_daemons, cd_status, latest_matrix, pod_nodes,
                  live_matrix_keys, matrix_timestamp, detected_poll_s,
                  matrix_cell_times, sts_info, cd_log_state):
     mid_row_h = max(len(cd_daemons), len(cd_status["nodes"]), 1) + 4
@@ -701,12 +701,12 @@ def build_layout(atack_pods, cd_daemons, cd_status, latest_matrix, pod_nodes,
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=1),
-        Layout(name="pods", size=len(atack_pods) + 4),
+        Layout(name="pods", size=len(ack_pods) + 4),
         Layout(name="mid", size=mid_row_h),
         Layout(name="matrix"),
     )
     layout["header"].update(build_header())
-    layout["pods"].update(build_pods_table(atack_pods))
+    layout["pods"].update(build_pods_table(ack_pods))
     layout["mid"].split_row(
         Layout(name="cd_daemons", ratio=3),
         Layout(name="cd_status", ratio=1),
@@ -777,7 +777,7 @@ def _linger_loop(fetch_fn, state, field, poll_s, linger_s, name_key="name"):
 
 
 def pods_poller(state, poll_s, linger_s):
-    """Polls atack pods. Updates state.pods and state.live_pod_indices."""
+    """Polls ack pods. Updates state.pods and state.live_pod_indices."""
     prev_names = set()
     gone = {}
     prev_pods = []
@@ -795,7 +795,7 @@ def pods_poller(state, poll_s, linger_s):
             except Exception as exc:
                 dlog.warning("failed to poll StatefulSet info: %s", exc)
         try:
-            fresh = get_atack_pods()
+            fresh = get_ack_pods()
         except Exception:
             dlog.exception("pods_poller failed:")
             time.sleep(poll_s)
@@ -1304,7 +1304,7 @@ def main():
                     pass
 
                 # --- Read shared state from panel threads (non-blocking) ---
-                atack_pods = pods_state.pods
+                ack_pods = pods_state.pods
                 live_pod_indices = pods_state.live_pod_indices
                 sts_info = pods_state.sts_info
                 gpus_per_node = sts_info["gpus_per_node"] if sts_info else 1
@@ -1332,7 +1332,7 @@ def main():
                 # --- Render ---
                 now_mono = time.monotonic()
                 display_pods = []
-                for p in atack_pods:
+                for p in ack_pods:
                     p2 = dict(p)
                     entry = results_state.last_result_times.get(p["idx"])
                     if entry and entry[1] == p.get("uid"):

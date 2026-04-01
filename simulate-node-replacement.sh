@@ -2,26 +2,26 @@
 set -euo pipefail
 
 # Simulate a node replacement: cordon + drain a worker node running an
-# atack pod, watch the StatefulSet reschedule it to a free node. This is
+# ack pod, watch the StatefulSet reschedule it to a free node. This is
 # a clean shutdown — the pod receives SIGTERM and performs graceful
 # shutdown (evict broadcast, lock drain, CUDA cleanup).
 #
-# Requires: 3 running atack pods, 4 nodes (one free for reschedule).
+# Requires: 3 running ack pods, 4 nodes (one free for reschedule).
 
-POD_COUNT=$(kubectl get pods -l app=atack --no-headers | wc -l)
-READY_COUNT=$(kubectl get pods -l app=atack --no-headers | grep -c "Running" || true)
+POD_COUNT=$(kubectl get pods -l app=ack --no-headers | wc -l)
+READY_COUNT=$(kubectl get pods -l app=ack --no-headers | grep -c "Running" || true)
 
 if [[ "$POD_COUNT" -ne 3 || "$READY_COUNT" -ne 3 ]]; then
-    echo "ERROR: expected 3 running atack pods, got ${READY_COUNT}/${POD_COUNT}"
+    echo "ERROR: expected 3 running ack pods, got ${READY_COUNT}/${POD_COUNT}"
     exit 1
 fi
 echo "3 pods running"
-kubectl get pods -l app=atack -o wide
+kubectl get pods -l app=ack -o wide
 
 # Exclude control-plane nodes.
 CP_NODES=$(kubectl get nodes -l node-role.kubernetes.io/control-plane \
     -o jsonpath='{.items[*].metadata.name}')
-POD_NODES=$(kubectl get pods -l app=atack \
+POD_NODES=$(kubectl get pods -l app=ack \
     -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}')
 
 TARGET_NODE=""
@@ -38,7 +38,7 @@ if [[ -z "$TARGET_NODE" ]]; then
     exit 1
 fi
 
-TARGET_POD=$(kubectl get pods -l app=atack \
+TARGET_POD=$(kubectl get pods -l app=ack \
     -o jsonpath="{.items[?(@.spec.nodeName=='${TARGET_NODE}')].metadata.name}")
 
 echo ""
@@ -80,4 +80,4 @@ done
 
 echo ""
 echo "Node replacement complete: ${TARGET_POD} now on ${NODE}"
-kubectl get pods -l app=atack -o wide
+kubectl get pods -l app=ack -o wide

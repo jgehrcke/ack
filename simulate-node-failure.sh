@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simulate a sudden node failure by force-killing an atack pod (no SIGTERM,
+# Simulate a sudden node failure by force-killing an ack pod (no SIGTERM,
 # no graceful shutdown). The StatefulSet recreates the pod, which should
 # land on a different node via anti-affinity. Tests IMEX daemon recovery
 # and peer resilience to abrupt handle invalidation.
 #
-# Requires: 3+ running atack pods, a free node for rescheduling.
+# Requires: 3+ running ack pods, a free node for rescheduling.
 
-POD_COUNT=$(kubectl get pods -l app=atack --no-headers | wc -l)
-READY_COUNT=$(kubectl get pods -l app=atack --no-headers | grep -c "Running" || true)
+POD_COUNT=$(kubectl get pods -l app=ack --no-headers | wc -l)
+READY_COUNT=$(kubectl get pods -l app=ack --no-headers | grep -c "Running" || true)
 
 if [[ "$POD_COUNT" -lt 2 || "$READY_COUNT" -lt 2 ]]; then
-    echo "ERROR: need at least 2 running atack pods, got ${READY_COUNT}/${POD_COUNT}"
+    echo "ERROR: need at least 2 running ack pods, got ${READY_COUNT}/${POD_COUNT}"
     exit 1
 fi
 echo "${READY_COUNT} pods running"
-kubectl get pods -l app=atack -o wide
+kubectl get pods -l app=ack -o wide
 
 # Pick a pod to kill (highest index, skip control-plane nodes).
 CP_NODES=$(kubectl get nodes -l node-role.kubernetes.io/control-plane \
@@ -24,7 +24,7 @@ CP_NODES=$(kubectl get nodes -l node-role.kubernetes.io/control-plane \
 
 TARGET_POD=""
 TARGET_NODE=""
-for POD in $(kubectl get pods -l app=atack -o jsonpath='{.items[*].metadata.name}'); do
+for POD in $(kubectl get pods -l app=ack -o jsonpath='{.items[*].metadata.name}'); do
     NODE=$(kubectl get pod "$POD" -o jsonpath='{.spec.nodeName}')
     IS_CP=false
     for CP in $CP_NODES; do
@@ -136,7 +136,7 @@ else:
         fi
 
         POD_LINES="${POD_LINES}  ${POD} ${READY_FIELD} ${NODE} results=${RESULT_STATUS}\n"
-    done < <(kubectl get pods -l app=atack -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[0].ready}{"\t"}{.spec.nodeName}{"\n"}{end}' 2>/dev/null)
+    done < <(kubectl get pods -l app=ack -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[0].ready}{"\t"}{.spec.nodeName}{"\n"}{end}' 2>/dev/null)
 
     echo "  [${ELAPSED}s]"
     echo -e "$POD_LINES"
@@ -155,7 +155,7 @@ else:
 
     if [[ "$ATTEMPTS" -ge 120 ]]; then
         echo "ERROR: timed out after ${ELAPSED}s"
-        kubectl get pods -l app=atack -o wide
+        kubectl get pods -l app=ack -o wide
         exit 1
     fi
     sleep 3
@@ -163,4 +163,4 @@ done
 
 # Taint removed by EXIT trap.
 echo ""
-kubectl get pods -l app=atack -o wide
+kubectl get pods -l app=ack -o wide
