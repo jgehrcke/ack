@@ -63,9 +63,9 @@ Details about allocation, transfer, measurement:
 * A chunk of local GPU memory gets allocated with `cuMemCreate()`.
 * The chunk is prepared for MNNVL exchange by calling `cuMemExportToShareableHandle()`.
 * The resulting handle of type `CU_MEM_HANDLE_TYPE_FABRIC` is shared with a peer via HTTP.
-* The peer calls`cuMemImportFromShareableHandle()` and subsequently maps memory with `cuMemMap()` (note that at this point, no memory _content_ has been communicated yet).
-* The actual payload exchange is performed by calling `cuMemcpyDtoD()` which in this case is copying remote GPU memory into local GPU memory.
-* The DtoD operation duration is measured on-GPU via `cuEventRecord()` & `cuEventElapsedTime()`.
+* The peer calls `cuMemImportFromShareableHandle()` and subsequently maps memory with `cuMemMap()` (note: at this point, no memory _content_ has been communicated yet).
+* The actual payload exchange is performed by `cuMemcpyDtoD()` which in this case copies remote GPU memory into local GPU memory.
+* The `DtoD` operation duration is measured on-GPU via `cuEventRecord()` & `cuEventElapsedTime()`.
 * Each copy is verified by running a checksum kernel.
 
 
