@@ -11,7 +11,7 @@ Originally built to demonstrate the elastic `ComputeDomain` concept provided by 
 
 ## Usage
 
-Deploy the workload:
+**1. Deploy**
 
 ```
 ./run.sh <num_pods> [--chunk-mib N] [--gpus-per-pod N] [--interval-s N] [--gpus-via-dra]
@@ -27,10 +27,26 @@ Deploy the workload:
 
 This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout.
 
-Start the dashboard at any time to monitor application pods and bandwidth measurement results:
+**2. Start the dashboard**
 
 ```
 make dashboard
+```
+
+**3. Scale up / down**
+
+```
+make scale-up
+make scale-down
+```
+
+Adjusts the StatefulSet replica count by one. New pods are discovered automatically; removed pods are drained gracefully.
+
+To simulate a controlled node replacement (cordon + drain) or an unexpected node failure (force-kill pod + IMEX daemon), use the helper scripts:
+
+```
+./simulate-node-replacement.sh
+./simulate-node-failure.sh
 ```
 
 ## Method
