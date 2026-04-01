@@ -8,6 +8,22 @@ Supports adding and removing nodes/pods/GPUs at runtime.
 Originally built to demonstrate the elastic `ComputeDomain` concept provided by the [NVIDIA DRA Driver for GPUs](https://github.com/NVIDIA/k8s-dra-driver-gpu).
 
 
+## Usage
+
+Deploy the workload:
+
+```
+./run.sh <num_pods> [--chunk-mib N] [--gpus-per-node N] [--poll-interval N] [--gpu-dra]
+```
+
+This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout.
+
+Start the dashboard at any time to monitor application pods and bandwidth measurement results:
+
+```
+make dashboard
+```
+
 ## Method
 
 The application is deployed as a Kubernetes StatefulSet.
@@ -69,20 +85,6 @@ The StatefulSet can be scaled up or down at any time (`make scale-up`, `make sca
 ## Deployment
 
 A StatefulSet with ComputeDomain, headless Service, and DRA resource claims. One pod per node (enforced via `podAntiAffinity` on `kubernetes.io/hostname`), co-scheduled on the same GPU clique (via `podAffinity` on `nvidia.com/gpu.clique`). Each pod uses `hostPort: 1337`.
-
-## Usage
-
-Deploy the workload:
-
-```
-./run.sh <num_pods> [--chunk-mib N] [--gpus-per-node N] [--poll-interval N] [--gpu-dra]
-```
-
-This cleans up previous resources, renders the manifest via `envsubst`, applies it, and waits for rollout. Then start the dashboard to monitor bandwidth:
-
-```
-make dashboard
-```
 
 ## Makefile targets
 
