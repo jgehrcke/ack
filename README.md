@@ -1,12 +1,38 @@
-# ACK — All-To-All raw CUDA API-based MNNVL test runner for Kubernetes
+# ACK
 
-Measures NVLink bandwidth between all cross-node GPU pairs in a Kubernetes StatefulSet. Uses CUDA fabric handles exported via IMEX for cross-node GPU memory access. Only cross-node pairs are benchmarked — GPUs on the same node are skipped.
+All-to-all CUDA/MNNVL test for Kubernetes.
+
+Think: MPI-free, dynamic nvbandwidth.
+
+Uses raw CUDA API to test multi-node NVLink (MNNVL) communication between GPU pairs.
+
+Supports adding and removing nodes/pods/GPUs at runtime.
+
+Leverages the elastic IMEX domain concept provided by NVIDIA's DRA Driver for GPUs (ComputeDomains).
+
+## Method
+
+This application is deployed as a Kubernetes StatefulSet.
+
+Each pod in this set runs a main loop which constantly repeats these steps:
+1. **Discover** (all current peers)
+2. **Communicate** (pull memory from all remote GPUs into all local GPUs)
+3. **Report** (emit benchmark results)
+
+Measurement details:
+* The basic CUDA API calls used for building the communication core are `cuMemCreate()`,
+`cuMemExportToShareableHandle()`,
+`cuMemImportFromShareableHandle()`, `cuMemMap()`,
+`cuMemcpyDtoD()`.
+* After allocating local GPU memory, it is being prepared for multi-node NVLink exchange by creating a handle of type `CU_MEM_HANDLE_TYPE_FABRIC`.
+* What's being timed is `cuMemcpyDtoD()` (copying remote GPU memory into local GPU memory, in this case).
+* The duration is measured on-GPU via `cuEventRecord()` &`cuEventElapsedTime()`
+* After each copy, a checksum kernel verifies data integrity of the transferred chunk.
+
 
 ## Architecture
 
 **ack.py** — benchmark runner and HTTP server.
-
-Each pod allocates GPU memory, exports `CU_MEM_HANDLE_TYPE_FABRIC` handles, and benchmarks `cuMemcpyDtoD` bandwidth to every remote GPU. Transfer duration is measured on-GPU via `cuEventRecord`/`cuEventElapsedTime`, reflecting pure NVLink transfer time. After each copy, a GPU-side checksum kernel verifies data integrity of the transferred chunk.
 
 Key subsystems:
 
