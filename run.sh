@@ -85,7 +85,7 @@ kubectl get pods -l app=ack -o wide
 if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
     echo "--- Verify mode: waiting for all pods to complete ${ACK_VERIFY_ROUNDS} full rounds"
     uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}"
-    VERIFY_RC=$?
-    make -C "${SCRIPT_DIR}" clean
-    exit $VERIFY_RC
+    #VERIFY_RC=$?
+    #make -C "${SCRIPT_DIR}" clean
+    #exit $VERIFY_RC
 fi

@@ -1636,6 +1636,11 @@ def _run_one_poll_round():
         LAST_RESULT_TIME = time.monotonic()
         log.info("peer poll: no peers discovered yet")
         return
+    if VERIFY_MODE and len(peers) < REPLICAS - 1:
+        LAST_RESULT_TIME = time.monotonic()
+        log.info("peer poll: found %d/%d peers, skipping round",
+                 len(peers), REPLICAS - 1)
+        return
 
     # Prefetch chunk metadata for all peers. Track unreachable peers
     # so we can emit explicit error entries for them in the results.
@@ -1780,6 +1785,9 @@ class _VerifyState:
         Sets VERIFY_OK and SHUTTING_DOWN on completion or failure.
         """
         global VERIFY_OK, VERIFY_ROUNDS_COMPLETED
+
+        if VERIFY_OK:
+            return  # Already done, keep running but stop counting.
 
         passed = (result is not None and _verify_round_passed(
             result, self.expected_benchmarks_per_round))
