@@ -324,8 +324,8 @@ LAST_CHUNK_SERVED_TIME = {}     # {gpu_idx: monotonic} — when /prepare-chunk l
 # The lock is acquired locally (for the DtoD destination GPU) and via HTTP
 # (for the remote source GPU). Remote locks auto-expire after GPU_LOCK_TIMEOUT_S
 # to handle crashed clients.
-GPU_LOCK_TIMEOUT_S = 5
-GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S = 8
+GPU_LOCK_TIMEOUT_S = 2 if VERIFY_MODE else 5
+GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S = 3 if VERIFY_MODE else 8
 GPU_LOCKS = {}           # {gpu_idx: threading.Lock}
 GPU_LOCK_TIMESTAMPS = {} # {gpu_idx: monotonic time of last acquire}
 GPU_LOCK_TOKENS = {}     # {gpu_idx: str} — token identifying current lock holder
@@ -699,7 +699,7 @@ def pop_cuda_context():
     cucheck(driver.cuCtxPopCurrent())
 
 
-def acquire_local_gpu_lock(gpu_idx) -> float:
+def acquire_local_gpu_lock(gpu_idx, peer_name="local") -> float:
     """Acquire the local GPU lock, blocking until available.
 
     Returns the wall-clock wait time in milliseconds.
@@ -708,7 +708,7 @@ def acquire_local_gpu_lock(gpu_idx) -> float:
     t0 = time.monotonic()
     GPU_LOCKS[gpu_idx].acquire()
     GPU_LOCK_TIMESTAMPS[gpu_idx] = time.monotonic()
-    GPU_LOCK_HOLDERS[gpu_idx] = "local"
+    GPU_LOCK_HOLDERS[gpu_idx] = peer_name
     wait_ms = (time.monotonic() - t0) * 1000
     log.debug("local lock GPU %d: acquired in %.1f ms", gpu_idx, wait_ms)
     return wait_ms
@@ -1375,7 +1375,7 @@ def acquire_gpu_lock_pair(peer_name, peer_host, port, remote_gpu_idx,
 
     try:
         if local_key < remote_key:
-            local_wait = acquire_local_gpu_lock(local_gpu_idx)
+            local_wait = acquire_local_gpu_lock(local_gpu_idx, peer_name)
             try:
                 remote_token, remote_wait = acquire_remote_gpu_lock(
                     peer_host, port, remote_gpu_idx)
@@ -1385,7 +1385,7 @@ def acquire_gpu_lock_pair(peer_name, peer_host, port, remote_gpu_idx,
         else:
             remote_token, remote_wait = acquire_remote_gpu_lock(
                 peer_host, port, remote_gpu_idx)
-            local_wait = acquire_local_gpu_lock(local_gpu_idx)
+            local_wait = acquire_local_gpu_lock(local_gpu_idx, peer_name)
     except LockError:
         raise
     except Exception as exc:
@@ -1630,11 +1630,30 @@ def _discover_peers_k8s_api() -> list[tuple[str, str]]:
     return peers
 
 
+_last_peer_names = set()
+
+
 def discover_peers() -> list[tuple[str, str]]:
-    """Discover peers using the configured method (ACK_PEER_DISCOVERY)."""
+    """Discover peers using the configured method (ACK_PEER_DISCOVERY).
+
+    Logs when peers appear or disappear compared to the previous call.
+    """
+    global _last_peer_names
     if PEER_DISCOVERY == "k8s-api":
-        return _discover_peers_k8s_api()
-    return _discover_peers_dns()
+        peers = _discover_peers_k8s_api()
+    else:
+        peers = _discover_peers_dns()
+
+    current_names = set(name for name, _ in peers)
+    new = current_names - _last_peer_names
+    lost = _last_peer_names - current_names
+    if new:
+        log.info("peer discovery: new peers: %s", ", ".join(sorted(new)))
+    if lost:
+        log.warning("peer discovery: lost peers: %s", ", ".join(sorted(lost)))
+    _last_peer_names = current_names
+
+    return peers
 
 
 def _prefetch_peer_chunk_metas(peer_name, peer_host, port):
@@ -1935,8 +1954,11 @@ def peer_poll_loop_verify():
                              completed, VERIFY_ROUNDS)
             else:
                 VERIFY_STATE = "FAILED"
-                log.error("verify: round %d failed, permanently setting "
-                          "state to FAILED", completed + 1)
+                total = result["total"] if result else 0
+                errors = result["errors"] if result else 0
+                log.error("verify: round %d failed (total=%d/%d, errors=%d)"
+                          ", permanently setting state to FAILED",
+                          completed + 1, total, expected, errors)
 
 
 def _wait_until(deadline):
@@ -2173,8 +2195,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
         wait_ms = (time.monotonic() - t0) * 1000
 
         if not acquired:
-            holder = GPU_LOCK_HOLDERS.get(gpu_idx, "unknown")
-            self._respond(503, f"lock acquisition timed out (held by {holder})")
+            current_holder = GPU_LOCK_HOLDERS.get(gpu_idx, "unknown")
+            self._respond(503, f"lock acquisition timed out after "
+                          f"{wait_ms / 1000:.1f}s (held by {current_holder})")
             return
 
         log.debug("HTTPD lock-gpu %d: granted to %s after %.1f ms",
