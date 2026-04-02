@@ -26,6 +26,7 @@ Cleans up resources from previous runs, renders the manifest template, applies i
 | `--verify N` | Verification mode (see below). |
 | `--verify-timeout N` | Timeout in seconds for verification (default: 300). |
 | `--teardown-on-verify-error` | Tear down resources even on verify failure (default: keep for debugging). |
+| `--show-stddev` | Show bandwidth standard deviation matrix after verification succeeds. |
 | `--peer-discovery M` | Peer discovery method: `k8s-api` (default) or `dns`. The K8s API is faster (no DNS propagation delay) but requires RBAC for pod listing. |
 
 
