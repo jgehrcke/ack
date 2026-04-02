@@ -21,7 +21,7 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 | `num_pods` | Number of StatefulSet replicas (one pod per node). Required. |
 | `--chunk-mib N` | GPU memory chunk size in MiB per transfer (default: 2500, max: 4096). |
 | `--gpus-per-pod N` | GPUs per pod (default: 4). |
-| `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1). |
+| `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1, ignored in verify mode). |
 | `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
 
 This cleans up previous resources, renders the manifest template, applies it, and waits for rollout.

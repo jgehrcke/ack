@@ -265,6 +265,7 @@ K8S_PODNAME = os.environ.get("ACK_POD_NAME", socket.gethostname())  # Pod name (
 K8S_NAMESPACE = os.environ.get("ACK_POD_NAMESPACE", "default")      # Pod namespace (from downward API)
 K8S_NODENAME = os.environ.get("ACK_NODE_NAME", "unknown")           # Node name (from downward API)
 DTOD_REPEAT_COUNT = int(os.environ.get("ACK_DTOD_REPEAT_COUNT", "2"))  # DtoD iterations per benchmark, report best
+PEER_DISCOVERY = os.environ.get("ACK_PEER_DISCOVERY", "k8s-api")      # "k8s-api" or "dns"
 REPLICAS = int(os.environ.get("ACK_REPLICAS", "0"))                    # Total StatefulSet replicas (for verify mode)
 VERIFY_ROUNDS = int(os.environ.get("ACK_VERIFY_ROUNDS", "0"))         # 0 = continuous mode (default)
 VERIFY_MODE = VERIFY_ROUNDS > 0
@@ -447,9 +448,9 @@ def main():
     log.info("pod name: %s", K8S_PODNAME)
     log.info("config: HTTPD_PORT=%s CHUNK_MIB=%s FLOAT_VALUE=%s SVC_NAME=%s "
              "POLL_INTERVAL_S=%s GPUS_PER_NODE=%s REPLICAS=%s "
-             "VERIFY_ROUNDS=%s",
+             "VERIFY_ROUNDS=%s PEER_DISCOVERY=%s",
              HTTPD_PORT, CHUNK_MIB, FLOAT_VALUE, SVC_NAME, POLL_INTERVAL_S,
-             GPUS_PER_NODE, REPLICAS, VERIFY_ROUNDS)
+             GPUS_PER_NODE, REPLICAS, VERIFY_ROUNDS, PEER_DISCOVERY)
 
     log.info("cuDriverGetVersion(): %s", cucheck(driver.cuDriverGetVersion()))
 
@@ -1428,8 +1429,9 @@ def _evict_import_on_error(local_gpu_idx, handle_bytes):
         log.warning("failed to unmap evicted import for GPU %d", local_gpu_idx)
 
 
-def import_map_and_verify(peer_host, port, remote_gpu_idx, local_gpu_idx,
-                          handle_bytes, alloc_size, num_floats, float_value):
+def import_map_and_verify(peer_name, peer_host, port, remote_gpu_idx,
+                          local_gpu_idx, handle_bytes, alloc_size,
+                          num_floats, float_value):
     """Import a remote fabric handle, map it, acquire GPU locks, run benchmark.
 
     Uses the import cache (_get_cached_import) so repeated calls with the
@@ -1446,7 +1448,6 @@ def import_map_and_verify(peer_host, port, remote_gpu_idx, local_gpu_idx,
         CudaError: On import, mapping, or benchmark failure.
         LockError: On lock acquisition failure.
     """
-    peer_name = peer_host.split(".")[0]
     t_total = time.monotonic()
 
     ensure_cuda_context(local_gpu_idx)
@@ -1501,7 +1502,7 @@ def _run_single_benchmark(peer_name: str, peer_host: str, port: int,
 
     try:
         result, lock_wait_ms, benchmark_ms = import_map_and_verify(
-            peer_host, port, remote_gpu_idx, local_gpu_idx,
+            peer_name, peer_host, port, remote_gpu_idx, local_gpu_idx,
             handle_bytes, meta["alloc_size"], meta["num_floats"],
             meta["float_value"])
     except CudaError as exc:
@@ -1522,9 +1523,12 @@ def _run_single_benchmark(peer_name: str, peer_host: str, port: int,
         log.warning("%s g%d->g%d: %s", peer_name, remote_gpu_idx,
                     local_gpu_idx, exc)
         return ("lock-err", peer_node, 0.0, 0.0)
-    except Exception:
-        log.exception("error %s g%d->g%d:", peer_name, remote_gpu_idx,
-                      local_gpu_idx)
+    except OSError as exc:
+        # Covers connection refused, timeout, socket errors from HTTP
+        # calls to peers. Programming bugs (IndexError, TypeError, etc.)
+        # are intentionally not caught — they should crash the process.
+        log.warning("%s g%d->g%d: %s", peer_name, remote_gpu_idx,
+                    local_gpu_idx, exc)
         return ("err", peer_node, 0.0, 0.0)
 
     log.debug("benchmark done %s-g%d -> local-g%d: %.1f ms, %s",
@@ -1532,7 +1536,7 @@ def _run_single_benchmark(peer_name: str, peer_host: str, port: int,
     return (result, peer_node, lock_wait_ms, benchmark_ms)
 
 
-def discover_peers() -> list[tuple[str, str]]:
+def _discover_peers_dns() -> list[tuple[str, str]]:
     """Discover peer pods via DNS SRV lookup on the headless Service.
 
     Returns:
@@ -1554,6 +1558,58 @@ def discover_peers() -> list[tuple[str, str]]:
             peers.append((pod_name, target))
 
     return peers
+
+
+def _discover_peers_k8s_api() -> list[tuple[str, str]]:
+    """Discover peer pods via the Kubernetes API (list pods by label).
+
+    Uses the in-cluster ServiceAccount token. Returns pod IPs directly,
+    avoiding DNS propagation delay. Requires RBAC: get/list pods.
+
+    Returns:
+        List of (pod_name, pod_ip) for all Ready peers except self.
+    """
+    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+    with open(token_path) as f:
+        token = f.read().strip()
+
+    url = (f"https://kubernetes.default.svc/api/v1/namespaces/{K8S_NAMESPACE}"
+           f"/pods?labelSelector=app=ack")
+
+    import ssl
+    import urllib.request
+    ctx = ssl.create_default_context(cafile=ca_path)
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Bearer {token}")
+
+    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+        data = json.loads(resp.read())
+
+    peers = []
+    for item in data.get("items", []):
+        name = item["metadata"]["name"]
+        if name == K8S_PODNAME:
+            continue
+        pod_ip = item.get("status", {}).get("podIP", "")
+        if not pod_ip:
+            continue
+        # Only include Ready pods.
+        conditions = item.get("status", {}).get("conditions", [])
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True"
+                    for c in conditions)
+        if ready:
+            peers.append((name, pod_ip))
+
+    return peers
+
+
+def discover_peers() -> list[tuple[str, str]]:
+    """Discover peers using the configured method (ACK_PEER_DISCOVERY)."""
+    if PEER_DISCOVERY == "k8s-api":
+        return _discover_peers_k8s_api()
+    return _discover_peers_dns()
 
 
 def _prefetch_peer_chunk_metas(peer_name, peer_host, port):
@@ -1821,7 +1877,8 @@ class _VerifyState:
 def peer_poll_loop():
     """Deadline-based poll loop: starts a new round every POLL_INTERVAL_S
     seconds, measured from the start of the previous round."""
-    time.sleep(POLL_INTERVAL_S)
+    if not VERIFY_MODE:
+        time.sleep(POLL_INTERVAL_S)
     next_deadline = time.monotonic()
 
     vstate = _VerifyState() if VERIFY_MODE else None
@@ -1847,9 +1904,11 @@ def peer_poll_loop():
             log.info("peer poll: shutdown requested, exiting loop")
             break
 
-        remaining = next_deadline - time.monotonic()
-        log.info("waiting %.1fs for next poll deadline", max(0, remaining))
-        _wait_until(next_deadline)
+        if not VERIFY_MODE or VERIFY_OK:
+            remaining = next_deadline - time.monotonic()
+            if remaining > 0:
+                log.info("waiting %.1fs for next poll deadline", remaining)
+                _wait_until(next_deadline)
 
 
 def _wait_until(deadline):

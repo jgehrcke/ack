@@ -11,9 +11,10 @@ usage() {
     echo "Options:"
     echo "  --chunk-mib N          GPU memory chunk size in MiB (default: 2500)"
     echo "  --gpus-per-pod N       GPUs per pod (default: 4)"
-    echo "  --interval-s N         run full benchmark (all-to-all) every N seconds (default: 1)"
+    echo "  --interval-s N         run full benchmark (all-to-all) every N seconds (default: 1, ignored in verify mode)"
     echo "  --gpus-via-dra         use DRA for GPU allocation instead of device plugin"
     echo "  --verify N             run N full benchmark rounds then exit (verification mode)"
+    echo "  --peer-discovery M     peer discovery method: dns (default) or k8s-api"
     exit 1
 }
 
@@ -29,6 +30,7 @@ export ACK_CHUNK_MIB="2500"
 export ACK_GPUS_PER_NODE="4"
 export ACK_POLL_INTERVAL_S="1"
 export ACK_VERIFY_ROUNDS="0"
+export ACK_PEER_DISCOVERY="k8s-api"
 GPU_DRA=false
 
 while [[ $# -gt 0 ]]; do
@@ -43,6 +45,8 @@ while [[ $# -gt 0 ]]; do
             GPU_DRA=true; shift ;;
         --verify)
             ACK_VERIFY_ROUNDS="$2"; shift 2 ;;
+        --peer-discovery)
+            ACK_PEER_DISCOVERY="$2"; shift 2 ;;
         *)
             echo "Unknown option: $1"
             usage ;;
@@ -52,6 +56,9 @@ done
 echo "--- Cleaning up previous resources (if any)"
 kubectl delete statefulset ack --ignore-not-found
 kubectl delete service svc-ack --ignore-not-found
+kubectl delete rolebinding ack --ignore-not-found
+kubectl delete role ack --ignore-not-found
+kubectl delete serviceaccount ack --ignore-not-found
 kubectl delete computedomain ack-compute-domain --ignore-not-found
 kubectl delete resourceclaimtemplate ack-gpu-rct --ignore-not-found
 # Wait for pods to terminate before redeploying.
@@ -71,6 +78,7 @@ RENDERED=$(sed \
     -e "s|\${ACK_GPUS_PER_NODE}|${ACK_GPUS_PER_NODE}|g" \
     -e "s|\${ACK_POLL_INTERVAL_S}|${ACK_POLL_INTERVAL_S}|g" \
     -e "s|\${ACK_VERIFY_ROUNDS}|${ACK_VERIFY_ROUNDS}|g" \
+    -e "s|\${ACK_PEER_DISCOVERY}|${ACK_PEER_DISCOVERY}|g" \
     < "$TEMPLATE")
 
 echo "--- Applying manifest"

@@ -1,3 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ack
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ack
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ack
+subjects:
+- kind: ServiceAccount
+  name: ack
+---
 apiVersion: resource.nvidia.com/v1beta1
 kind: ComputeDomain
 metadata:
@@ -37,6 +63,7 @@ spec:
       labels:
         app: ack
     spec:
+      serviceAccountName: ack
       # Allow enough time for graceful shutdown: drain locks (~3s),
       # broadcast evict-peer to peers (~20s budget, parallel), CUDA
       # cleanup (~1s). Total ~24s, leaving ~6s margin.
@@ -92,6 +119,8 @@ spec:
           value: "${ACK_REPLICAS}"
         - name: ACK_VERIFY_ROUNDS
           value: "${ACK_VERIFY_ROUNDS}"
+        - name: ACK_PEER_DISCOVERY
+          value: "${ACK_PEER_DISCOVERY}"
         - name: ACK_POD_NAME
           valueFrom:
             fieldRef:

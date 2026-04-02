@@ -41,3 +41,6 @@ clean:
 	kubectl delete service svc-ack --ignore-not-found
 	kubectl delete computedomain ack-compute-domain --ignore-not-found
 	kubectl delete resourceclaimtemplate ack-gpu-rct --ignore-not-found
+	kubectl delete rolebinding ack --ignore-not-found
+	kubectl delete role ack --ignore-not-found
+	kubectl delete serviceaccount ack --ignore-not-found
