@@ -16,6 +16,7 @@ usage() {
     echo "  --verify N             run N full benchmark rounds then exit (verification mode)"
     echo "  --peer-discovery M     peer discovery method: dns (default) or k8s-api"
     echo "  --skip-teardown        with --verify: keep pods running after verify completes"
+    echo "  --verify-timeout N     with --verify: timeout in seconds (default: 300)"
     exit 1
 }
 
@@ -34,6 +35,7 @@ export ACK_VERIFY_ROUNDS="0"
 export ACK_PEER_DISCOVERY="k8s-api"
 GPU_DRA=false
 SKIP_TEARDOWN=false
+VERIFY_TIMEOUT_S="300"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -51,6 +53,8 @@ while [[ $# -gt 0 ]]; do
             ACK_PEER_DISCOVERY="$2"; shift 2 ;;
         --skip-teardown)
             SKIP_TEARDOWN=true; shift ;;
+        --verify-timeout)
+            VERIFY_TIMEOUT_S="$2"; shift 2 ;;
         *)
             echo "Unknown option: $1"
             usage ;;
@@ -96,7 +100,7 @@ kubectl get pods -l app=ack -o wide
 
 if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
     echo "--- Verify mode: waiting for all pods to complete ${ACK_VERIFY_ROUNDS} full rounds"
-    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}"
+    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}"
     VERIFY_RC=$?
     if [[ "$SKIP_TEARDOWN" != "true" ]]; then
         make -C "${SCRIPT_DIR}" clean

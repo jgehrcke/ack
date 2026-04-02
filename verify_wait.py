@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.12"
+# dependencies = ["requests"]
 # ///
 """Poll all ACK pods until every pod reports verify_state=SUCCEEDED, then exit 0.
 
@@ -13,8 +14,10 @@ import logging
 import subprocess
 import sys
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+import requests
+from requests.adapters import HTTPAdapter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +28,11 @@ log = logging.getLogger()
 
 POLL_INTERVAL_S = 0.5
 TIMEOUT_S = 300
-HTTP_TIMEOUT_S = 2
+HTTP_TIMEOUT = (0.5, 1.5)  # (connect, recv) seconds
+
+# Session with no internal retries.
+_session = requests.Session()
+_session.mount("http://", HTTPAdapter(max_retries=0))
 
 
 def get_pods():
@@ -47,11 +54,10 @@ def get_pods():
 def poll_pod(name, ip):
     """Return (pod_name, verify_state, rounds_completed, error)."""
     try:
-        req = urllib.request.Request(f"http://{ip}:1337/results")
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-            data = json.loads(resp.read())
-            return (name, data.get("verify_state"),
-                    data.get("verify_rounds_completed", 0), None)
+        resp = _session.get(f"http://{ip}:1337/results", timeout=HTTP_TIMEOUT)
+        data = resp.json()
+        return (name, data.get("verify_state"),
+                data.get("verify_rounds_completed", 0), None)
     except Exception as exc:
         return (name, None, 0, str(exc))
 
@@ -59,9 +65,8 @@ def poll_pod(name, ip):
 def fetch_results(ip):
     """Fetch /results JSON from a pod. Returns parsed dict or None."""
     try:
-        req = urllib.request.Request(f"http://{ip}:1337/results")
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-            return json.loads(resp.read())
+        resp = _session.get(f"http://{ip}:1337/results", timeout=HTTP_TIMEOUT)
+        return resp.json()
     except Exception:
         return None
 
@@ -189,20 +194,26 @@ def poll_all(num_pods, verify_rounds):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <num_pods> <verify_rounds>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <num_pods> <verify_rounds> [timeout_s]",
+              file=sys.stderr)
         sys.exit(1)
 
     num_pods = int(sys.argv[1])
     verify_rounds = int(sys.argv[2])
+    timeout_s = int(sys.argv[3]) if len(sys.argv) > 3 else TIMEOUT_S
+    log.info("waiting for %d pods × %d rounds (timeout: %ds)",
+             num_pods, verify_rounds, timeout_s)
 
     start = time.monotonic()
     while True:
 
         time.sleep(POLL_INTERVAL_S)
 
-        if time.monotonic() - start > TIMEOUT_S:
-            log.error("timeout after %ds", TIMEOUT_S)
+        elapsed = time.monotonic() - start
+        if elapsed > timeout_s:
+            log.error("timeout: no result after %ds (limit: %ds)",
+                      int(elapsed), timeout_s)
             sys.exit(1)
 
         outcome, failed_pods = poll_all(num_pods, verify_rounds)
