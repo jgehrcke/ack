@@ -8,7 +8,7 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ![Dashboard](screenshot.png)
 
-Disclaimer(JP): this project has been authored with the help of Claude. Decisive parts have however been very carefully engineered.
+Disclaimer(JP): this project has been authored with the help of Claude Code. Decisive parts have however been very carefully engineered.
 
 ## Requirements
 
@@ -21,10 +21,10 @@ Disclaimer(JP): this project has been authored with the help of Claude. Decisive
 ### Deploy with `./ack`
 
 This command
-1. cleans up resources from previous runs,
-2. renders k8s manifest templates, applies them, waits for rollout,
+1. cleans up resources from previous runs
+2. renders k8s manifest templates, applies them, waits for rollout
 3. optionally performs validation and cleanup
-4. terminates with a credible exit code.
+4. terminates with a credible exit code
 
 **Command reference:**
 
@@ -63,15 +63,17 @@ Use `make clean` to tear down the deployment.
 
 ### Verification mode (for CI/QA)
 
-Verification mode requires N consecutively passing all-to-all benchmark rounds. Example:
+Verification mode requires N consecutive error-free all-to-all benchmark rounds. Example:
 
 ```
 ./ack 5 --verify 10
 ```
 
-A _full_ benchmark round means that `(num_pods-1) × gpus_per_pod²` memcpy operations succeeded.
-_Partial_ rounds are tolerated during a 120s startup phase while peers come online.
-After the first full round, any non-full round is a failure.
+Specifically:
+* _Partial_ result sets are tolerated during a 120s startup phase while peers come online.
+* After the first full result set, any partial set is a failure.
+* Definition of a _full_ result set: all memcpy operations succeeded for the expected set of GPU pairs (`(num_pods-1) × gpus_per_pod²` operations).
+
 Rounds run back-to-back (no interval delay).
 
 Under the hood, `verify_wait.py` periodically polls pod state and determines the final outcome (success, early failure, or timeout).
@@ -92,7 +94,7 @@ Press `U` / `D` to scale up or down.
 
 ### Simulate node replacement/failure
 
-There are two helper scripts
+You probably want to invent and demonstrate your own operations scenario and/or failover scenario. For inspiration, there are two helper programs:
 
 ```
 ./simulate-node-replacement.sh
