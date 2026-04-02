@@ -10,10 +10,12 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ## Usage
 
-**1. Deploy**
+**1. `run.sh` reference**
+
+Cleans up resources from previous runs, renders the manifest template, applies it, and waits for rollout.
 
 ```
-./run.sh <num_pods> [--chunk-mib N] [--gpus-per-pod N] [--interval-s N] [--gpus-via-dra]
+./run.sh <num_pods> [options]
 ```
 
 | Argument | Description |
@@ -21,34 +23,45 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 | `num_pods` | Number of StatefulSet replicas (one pod per node). Required. |
 | `--chunk-mib N` | GPU memory chunk size in MiB per transfer (default: 2500, max: 4096). |
 | `--gpus-per-pod N` | GPUs per pod (default: 4). |
-| `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1, ignored in verify mode). |
+| `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1, ignored in verification mode). |
 | `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
+| `--verify N` | Verification mode (see below). `ack` runs in continuous mode if this is not set. |
+| `--peer-discovery M` | Peer discovery method: `k8s-api` (default) or `dns`. The K8s API is faster (no DNS propagation delay) but requires RBAC for pod listing. |
 
-This cleans up previous resources, renders the manifest template, applies it, and waits for rollout.
 
-**2. Start the dashboard**
+
+**2. Continuous mode**
+
+The default mode. Pods benchmark indefinitely until terminated. Use the dashboard (see below) to monitor pods and bandwidth results in real time.
+
+**3. Verification mode (for CI/QA)**
+
+```
+./run.sh 5 --verify 10
+```
+
+Runs N full benchmark rounds. A full round requires all `(replicas-1) × gpus_per_pod²` benchmarks to succeed. Partial rounds are tolerated during a 120s startup phase while peers come online. After the first full round, any non-full round is a failure. Rounds run back-to-back (no interval delay).
+
+Invokes `verify_wait.py` to poll all pods for results (until completion or timeout).
+
+Upon success, prints mean and stddev bandwidth matrices and tears down the workload. Exit code 0 on success.
+
+**4. Dashboard**
 
 ```
 make dashboard
 ```
 
-**3. Scale up / down**
+Press `U` / `D` to scale up or down.
 
-Press `U` / `D` in the dashboard to scale up or down. Alternatively:
-
-```
-make scale-up
-make scale-down
-```
-
-New pods are discovered automatically; removed pods are drained gracefully.
-
-To simulate a controlled node replacement (cordon + drain) or an unexpected node failure (force-kill pod + IMEX daemon), use the helper scripts:
+**5. Simulate node replacement/failover**
 
 ```
 ./simulate-node-replacement.sh
 ./simulate-node-failure.sh
 ```
+
+The first script performs a controlled cordon + drain. The second force-kills a pod and its IMEX daemon to simulate unexpected node failure.
 
 ## Method
 
