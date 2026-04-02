@@ -15,6 +15,7 @@ usage() {
     echo "  --gpus-via-dra         use DRA for GPU allocation instead of device plugin"
     echo "  --verify N             run N full benchmark rounds then exit (verification mode)"
     echo "  --peer-discovery M     peer discovery method: dns (default) or k8s-api"
+    echo "  --skip-teardown        with --verify: keep pods running after verify completes"
     exit 1
 }
 
@@ -32,6 +33,7 @@ export ACK_POLL_INTERVAL_S="1"
 export ACK_VERIFY_ROUNDS="0"
 export ACK_PEER_DISCOVERY="k8s-api"
 GPU_DRA=false
+SKIP_TEARDOWN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -47,6 +49,8 @@ while [[ $# -gt 0 ]]; do
             ACK_VERIFY_ROUNDS="$2"; shift 2 ;;
         --peer-discovery)
             ACK_PEER_DISCOVERY="$2"; shift 2 ;;
+        --skip-teardown)
+            SKIP_TEARDOWN=true; shift ;;
         *)
             echo "Unknown option: $1"
             usage ;;
@@ -93,7 +97,11 @@ kubectl get pods -l app=ack -o wide
 if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
     echo "--- Verify mode: waiting for all pods to complete ${ACK_VERIFY_ROUNDS} full rounds"
     uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}"
-    #VERIFY_RC=$?
-    #make -C "${SCRIPT_DIR}" clean
-    #exit $VERIFY_RC
+    VERIFY_RC=$?
+    if [[ "$SKIP_TEARDOWN" != "true" ]]; then
+        make -C "${SCRIPT_DIR}" clean
+    else
+        echo "--- Skipping teardown (--skip-teardown)"
+    fi
+    exit $VERIFY_RC
 fi

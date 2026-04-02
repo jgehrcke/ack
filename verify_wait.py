@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.12"
 # ///
-"""Poll all ACK pods until every pod reports verify_ok=true, then exit 0.
+"""Poll all ACK pods until every pod reports verify_state=SUCCEEDED, then exit 0.
 
 Expects two arguments: <num_pods> <verify_rounds>.
 Resolves pod node IPs via kubectl, then polls /results in parallel.
@@ -45,15 +45,15 @@ def get_pods():
 
 
 def poll_pod(name, ip):
-    """Return (pod_name, verify_ok, rounds_completed, error)."""
+    """Return (pod_name, verify_state, rounds_completed, error)."""
     try:
         req = urllib.request.Request(f"http://{ip}:1337/results")
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
             data = json.loads(resp.read())
-            return (name, data.get("verify_ok", False),
+            return (name, data.get("verify_state"),
                     data.get("verify_rounds_completed", 0), None)
     except Exception as exc:
-        return (name, False, 0, str(exc))
+        return (name, None, 0, str(exc))
 
 
 def fetch_results(ip):
@@ -137,40 +137,53 @@ def print_summary(pods):
             print(line)
         print()
 
+    print()
     print_matrix("Bandwidth mean (GB/s):", matrix_mean)
     print_matrix("Bandwidth stddev (GB/s):", matrix_std)
 
 
 def poll_all(num_pods, verify_rounds):
-    """Poll all pods. Return True when all pods report verify_ok."""
+    """Poll all pods. Returns "ok", "failed", or "pending"."""
     try:
         pods = get_pods()
     except Exception as exc:
         log.warning("error getting pods: %s", exc)
-        return False
+        return "pending"
 
     if not pods:
         log.info("no pods found")
-        return False
+        return "pending"
 
     with ThreadPoolExecutor(max_workers=len(pods)) as pool:
         futures = [pool.submit(poll_pod, name, ip) for name, ip in pods]
         results = [f.result() for f in futures]
 
     parts = []
-    all_ok = len(results) == num_pods
-    for name, ok, rounds_completed, err in results:
-        if ok:
-            parts.append(f"{name}=ok")
-        elif err:
+    any_failed = False
+    all_succeeded = len(results) == num_pods
+    for name, state, rounds_completed, err in results:
+        if err:
             parts.append(f"{name}=err({err})")
-            all_ok = False
+            all_succeeded = False
+        elif state == "SUCCEEDED":
+            parts.append(f"{name}=SUCCEEDED")
+        elif state == "FAILED":
+            parts.append(f"{name}=FAILED")
+            any_failed = True
+        elif state == "IN_PROGRESS":
+            parts.append(f"{name}=IN_PROGRESS({rounds_completed}/{verify_rounds})")
+            all_succeeded = False
         else:
-            parts.append(f"{name}={rounds_completed}/{verify_rounds}")
-            all_ok = False
+            parts.append(f"{name}={state or '?'}")
+            all_succeeded = False
 
     log.info("%s", " ".join(parts))
-    return all_ok
+
+    if any_failed:
+        return "failed"
+    if all_succeeded:
+        return "ok"
+    return "pending"
 
 
 def main():
@@ -190,11 +203,15 @@ def main():
             log.error("timeout after %ds", TIMEOUT_S)
             sys.exit(1)
 
-        if poll_all(num_pods, verify_rounds):
+        outcome = poll_all(num_pods, verify_rounds)
+        if outcome == "ok":
             log.info("all %d pods passed %d rounds", num_pods, verify_rounds)
             pods = get_pods()
             print_summary(pods)
             sys.exit(0)
+        if outcome == "failed":
+            log.error("verification failed")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
