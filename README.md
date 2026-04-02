@@ -8,12 +8,12 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ![Dashboard](screenshot.png)
 
-## `run.sh` reference
+## CLI reference
 
 Cleans up resources from previous runs, renders the manifest template, applies it, and waits for rollout.
 
 ```
-./run.sh <num_pods> [options]
+./ack <num_pods> [options]
 ```
 
 | Argument&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Description |
@@ -44,7 +44,7 @@ Use the dashboard (see below) to monitor pods and bandwidth results in real time
 Disable continuous mode and enable verification mode by specifying `--verify`, e.g.:
 
 ```
-./run.sh 5 --verify 10
+./ack 5 --verify 10
 ```
 
 Requires N full benchmark rounds to pass consecutively.
