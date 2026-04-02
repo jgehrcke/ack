@@ -1697,9 +1697,9 @@ def _run_one_poll_round():
         return
     if VERIFY_MODE and len(peers) < REPLICAS - 1:
         LAST_RESULT_TIME = time.monotonic()
-        log.info("peer poll: found %d/%d peers, skipping round",
+        log.info("peer poll: found %d/%d peers, incomplete",
                  len(peers), REPLICAS - 1)
-        return
+        return  # Caller receives None — treated as failure after first full round.
 
     # Prefetch chunk metadata for all peers. Track unreachable peers
     # so we can emit explicit error entries for them in the results.
