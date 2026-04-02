@@ -82,10 +82,10 @@ kubectl delete resourceclaimtemplate ack-gpu-rct --ignore-not-found
 kubectl wait --for=delete pod -l app=ack --timeout=60s 2>/dev/null || true
 
 if [[ "$GPU_DRA" == "true" ]]; then
-    TEMPLATE="${SCRIPT_DIR}/ack-dra.yaml.envsubst"
+    TEMPLATE="${SCRIPT_DIR}/spec/ack-dra.yaml.envsubst"
     echo "--- Using DRA for GPU allocation"
 else
-    TEMPLATE="${SCRIPT_DIR}/ack.yaml.envsubst"
+    TEMPLATE="${SCRIPT_DIR}/spec/ack.yaml.envsubst"
 fi
 
 echo "--- Rendering manifest: ACK_REPLICAS=${ACK_REPLICAS}, ACK_CHUNK_MIB=${ACK_CHUNK_MIB}, ACK_GPUS_PER_NODE=${ACK_GPUS_PER_NODE}, ACK_POLL_INTERVAL_S=${ACK_POLL_INTERVAL_S}, ACK_VERIFY_ROUNDS=${ACK_VERIFY_ROUNDS}"
@@ -112,7 +112,7 @@ if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
     VERIFY_RC=0
     STDDEV_FLAG=""
     if [[ "$SHOW_STDDEV" == "true" ]]; then STDDEV_FLAG="--show-stddev"; fi
-    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}" $STDDEV_FLAG || VERIFY_RC=$?
+    uv run "${SCRIPT_DIR}/src/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}" $STDDEV_FLAG || VERIFY_RC=$?
     if [[ "$VERIFY_RC" -eq 0 ]]; then
         make -C "${SCRIPT_DIR}" clean
     elif [[ "$TEARDOWN_ON_VERIFY_ERROR" == "true" ]]; then

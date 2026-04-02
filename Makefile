@@ -13,7 +13,7 @@ build-and-push-as-latest: build-and-push
 	docker buildx build --progress plain -t docker.io/jgehrcke/ack:latest --push .
 
 dashboard:
-	-uv run dashboard.py
+	-uv run src/dashboard.py
 	stty sane
 
 profile:

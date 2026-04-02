@@ -19,7 +19,7 @@ RUN uv pip install \
 # Pre-compile the checksum kernel to PTX for compute_80 (Ampere).
 # PTX is forward-compatible — the driver JIT-compiles it to the
 # target GPU at runtime.
-COPY compile_checksum_kernel.py /ack/
+COPY src/compile_checksum_kernel.py /ack/
 RUN .venv/bin/python compile_checksum_kernel.py
 
 # Remove NVRTC from the venv — it's no longer needed at runtime.
@@ -30,7 +30,7 @@ FROM ubuntu:24.04
 COPY --from=build /root/.local/share/uv/python /root/.local/share/uv/python
 COPY --from=build /ack/.venv /ack/.venv
 COPY --from=build /ack/checksum.ptx /ack/
-COPY ./ack.py /ack/
+COPY src/ack.py /ack/
 
 ENV PATH="/ack/.venv/bin:${PATH}"
 WORKDIR /ack
