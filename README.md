@@ -1,6 +1,6 @@
 # ACK
 
-*All-to-all CUDA memcopy test for Kubernetes.*
+*All-to-all CUDA memcpy test for Kubernetes*
 
 Tests multi-node NVLink (MNNVL) communication between GPUs. Supports adding and removing GPUs at runtime (designed as a k8s-oriented, MPI-free, dynamic alternative to [nvbandwidth](https://github.com/NVIDIA/nvbandwidth)).
 
@@ -10,9 +10,10 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ## Requirements
 
-- [uv](https://docs.astral.sh/uv/) — runs Python scripts and manages dependencies
-- `kubectl` — configured with access to the target cluster
-- `docker` — only needed for building the container image (`make build`)
+- `make`, [`uv`](https://docs.astral.sh/uv/), and `kubectl` are available in your local environment.
+- `KUBECONFIG` points to your target Kubernetes cluster.
+- The NVIDIA DRA Driver for GPUs is installed, with `ComputeDomain` support enabled.
+
 
 ## CLI reference
 
