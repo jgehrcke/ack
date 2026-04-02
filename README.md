@@ -23,7 +23,9 @@ Cleans up resources from previous runs, renders the manifest template, applies i
 | `--gpus-per-pod N` | GPUs per pod (default: 4). |
 | `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1, ignored in verification mode). |
 | `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
-| `--verify N` | Verification mode (see below). `ack` runs in continuous mode if this is not set. |
+| `--verify N` | Verification mode (see below). |
+| `--verify-timeout N` | Timeout in seconds for verification (default: 300). |
+| `--teardown-on-verify-error` | Tear down resources even on verify failure (default: keep for debugging). |
 | `--peer-discovery M` | Peer discovery method: `k8s-api` (default) or `dns`. The K8s API is faster (no DNS propagation delay) but requires RBAC for pod listing. |
 
 
