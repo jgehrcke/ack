@@ -196,7 +196,8 @@ def poll_all(num_pods, verify_rounds):
             any_failed = True
             failed_pods.append(name)
         elif state == "IN_PROGRESS":
-            parts.append(f"{name}=IN_PROGRESS({rounds_completed}/{verify_rounds})")
+            width = len(str(verify_rounds))
+            parts.append(f"{name}=IN_PROGRESS({rounds_completed:0{width}d}/{verify_rounds})")
             all_succeeded = False
         else:
             parts.append(f"{name}={state or '?'}")
