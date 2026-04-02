@@ -128,8 +128,6 @@ def deploy(args):
 
 def run_verify(args):
     """Run verify_wait.py and handle teardown based on outcome."""
-    log.info("verify mode: waiting for %d pods × %d rounds (timeout: %ds)",
-             args.num_pods, args.verify, args.verify_timeout)
 
     cmd = [
         "uv", "run",
