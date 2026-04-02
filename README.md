@@ -8,9 +8,7 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ![Dashboard](screenshot.png)
 
-## Usage
-
-**1. `run.sh` reference**
+## `run.sh` reference
 
 Cleans up resources from previous runs, renders the manifest template, applies it, and waits for rollout.
 
@@ -18,7 +16,7 @@ Cleans up resources from previous runs, renders the manifest template, applies i
 ./run.sh <num_pods> [options]
 ```
 
-| Argument | Description |
+| Argument&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Description |
 |---|---|
 | `num_pods` | Number of StatefulSet replicas (one pod per node). Required. |
 | `--chunk-mib N` | GPU memory chunk size in MiB per transfer (default: 2500, max: 4096). |
@@ -29,24 +27,34 @@ Cleans up resources from previous runs, renders the manifest template, applies i
 | `--peer-discovery M` | Peer discovery method: `k8s-api` (default) or `dns`. The K8s API is faster (no DNS propagation delay) but requires RBAC for pod listing. |
 
 
+## Usage
 
-**2. Continuous mode**
+**Continuous mode**
 
-The default mode. Pods benchmark indefinitely until terminated. Use the dashboard (see below) to monitor pods and bandwidth results in real time.
+This is the default mode.
 
-**3. Verification mode (for CI/QA)**
+Pods benchmark indefinitely until terminated.
+Use the dashboard (see below) to monitor pods and bandwidth results in real time.
+
+**Verification mode (for CI/QA)**
+
+Disable continuous mode and enable verification mode by specifying `--verify`, e.g.:
 
 ```
 ./run.sh 5 --verify 10
 ```
 
-Runs N full benchmark rounds. A full round requires all `(replicas-1) × gpus_per_pod²` benchmarks to succeed. Partial rounds are tolerated during a 120s startup phase while peers come online. After the first full round, any non-full round is a failure. Rounds run back-to-back (no interval delay).
+Requires N full benchmark rounds to pass consecutively.
+A full round requires all `(replicas-1) × gpus_per_pod²` benchmarks to succeed.
+Partial rounds are tolerated during a 120s startup phase while peers come online.
+After the first full round, any non-full round is a failure.
+Rounds run back-to-back (no interval delay).
 
 Invokes `verify_wait.py` to poll all pods for results (until completion or timeout).
 
 Upon success, prints mean and stddev bandwidth matrices and tears down the workload. Exit code 0 on success.
 
-**4. Dashboard**
+**Dashboard**
 
 ```
 make dashboard
@@ -54,14 +62,15 @@ make dashboard
 
 Press `U` / `D` to scale up or down.
 
-**5. Simulate node replacement/failover**
+**Simulate node replacement/failure**
 
 ```
 ./simulate-node-replacement.sh
 ./simulate-node-failure.sh
 ```
 
-The first script performs a controlled cordon + drain. The second force-kills a pod and its IMEX daemon to simulate unexpected node failure.
+The first script performs a controlled cordon + drain.
+The second force-kills a pod and its IMEX daemon to simulate unexpected node failure.
 
 ## Method
 
