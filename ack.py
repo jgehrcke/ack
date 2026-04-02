@@ -137,8 +137,8 @@ class LockError(AckError):
     """Raised when GPU lock acquisition fails (timeout, connection error)."""
 
 
-class PeerHTTPError(AckError):
-    """Raised when a peer returns an HTTP error (e.g., 503 during shutdown)."""
+class PrepareChunkError(AckError):
+    """Raised when fetching chunk metadata from a peer fails."""
 
 
 class PeerUnreachableError(AckError):
@@ -249,17 +249,27 @@ def _http_do(method, host, port, path, recv_timeout=2):
     for attempt in range(2):
         conn = _http_conn(host, port)
         try:
-            # Set short timeout for connect + send. If the connection is
-            # already established, this limits how long we wait for the
-            # send to complete (detects dead peers quickly).
+            # Phase 1: connect (if new) + send request. Short timeout
+            # to detect dead peers quickly.
             if conn.sock:
                 conn.sock.settimeout(CONNECT_TIMEOUT_S)
-            conn.request(method, path)
-            # Request sent — raise timeout for the response wait.
+            try:
+                conn.request(method, path)
+            except (TimeoutError, OSError) as exc:
+                raise OSError(
+                    f"connect/send {method} {host}:{port}{path}: {exc}"
+                ) from exc
+            # Phase 2: wait for response. Longer timeout — the peer may
+            # need time to process (e.g., lock-gpu blocks until available).
             if conn.sock:
                 conn.sock.settimeout(recv_timeout)
-            resp = conn.getresponse()
-            body = resp.read()
+            try:
+                resp = conn.getresponse()
+                body = resp.read()
+            except (TimeoutError, OSError) as exc:
+                raise OSError(
+                    f"recv {method} {host}:{port}{path}: {exc}"
+                ) from exc
             return resp.status, body
         except (http.client.RemoteDisconnected, http.client.HTTPException,
                 ConnectionError, BrokenPipeError, OSError):
@@ -727,8 +737,11 @@ def acquire_remote_gpu_lock(peer_host: str, port: int, gpu_index: int) -> tuple[
     log.debug("remote lock %s GPU %d: acquiring", peer_host, gpu_index)
     t0 = time.monotonic()
     path = f"/lock-gpu?gpu_index={gpu_index}&holder={K8S_PODNAME}"
-    status, body = _http_do("POST", peer_host, port, path,
-                            recv_timeout=GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S)
+    try:
+        status, body = _http_do("POST", peer_host, port, path,
+                                recv_timeout=GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S)
+    except OSError as exc:
+        raise LockError(f"lock-gpu {peer_host}: {exc}") from exc
     if status != 200:
         raise LockError(f"lock-gpu failed: HTTP {status}: {body.decode()}")
     wait_ms = (time.monotonic() - t0) * 1000
@@ -1120,25 +1133,17 @@ def fetch_chunk_meta(peer_host: str, port: int, gpu_index: int) -> dict:
     """Fetch chunk metadata from a peer pod via GET /prepare-chunk?gpu_index=N.
 
     Raises:
-        RuntimeError: On non-200 response.
-        OSError: On connection or timeout failure.
+        PrepareChunkError: On any failure (connection, timeout, HTTP error).
     """
     path = f"/prepare-chunk?gpu_index={gpu_index}"
-    status, body = _http_do("GET", peer_host, port, path, recv_timeout=1)
+    try:
+        status, body = _http_do("GET", peer_host, port, path, recv_timeout=1)
+    except OSError as exc:
+        raise PrepareChunkError(str(exc)) from exc
     if status != 200:
-        log.error("peer returned HTTP %s: %s", status, body.decode())
-        raise PeerHTTPError(f"prepare-chunk: HTTP {status}")
+        raise PrepareChunkError(f"HTTP {status}: {body.decode()}")
     return json.loads(body)
 
-
-# Connection errors that indicate the remote end is simply not reachable
-# right now. These are expected during pod restarts and don't warrant a
-# full stack trace.
-_TRANSIENT_CONN_ERRORS = (
-    ConnectionError,
-    TimeoutError,
-    OSError,
-)
 
 
 def _fetch_chunk_meta_with_retry(peer_host, port, gpu_index, peer_name):
@@ -1152,9 +1157,10 @@ def _fetch_chunk_meta_with_retry(peer_host, port, gpu_index, peer_name):
     for attempt in range(2):
         try:
             return fetch_chunk_meta(peer_host, port, gpu_index)
-        except (*_TRANSIENT_CONN_ERRORS, PeerHTTPError) as exc:
+        except PrepareChunkError as exc:
             msg = str(exc)
-            if isinstance(exc, socket.gaierror):
+            # DNS failure (gaierror) is wrapped inside PrepareChunkError.
+            if isinstance(exc.__cause__, socket.gaierror):
                 log.warning("peer %s unreachable (DNS): %s", peer_name, msg)
                 raise PeerUnreachableError(msg) from exc
             if attempt == 0:
@@ -1524,8 +1530,8 @@ def _run_single_benchmark(peer_name: str, peer_host: str, port: int,
             handle_bytes, meta["alloc_size"], meta["num_floats"],
             meta["float_value"])
     except CudaError as exc:
-        log.exception("CUDA error %s g%d->g%d:", peer_name, remote_gpu_idx,
-                      local_gpu_idx)
+        log.exception("benchmark %s:g%d → local:g%d: CUDA error:",
+                      peer_name, remote_gpu_idx, local_gpu_idx)
         # Include specific CUDA error in result for dashboard display.
         # e.g. "INVALID_HANDLE" from "CUDA error code=400(b'CUDA_ERROR_INVALID_HANDLE')"
         tag = "cuda-err"
@@ -1538,15 +1544,16 @@ def _run_single_benchmark(peer_name: str, peer_host: str, port: int,
             tag = "LAUNCH_FAILED"
         return (tag, peer_node, 0.0, 0.0)
     except LockError as exc:
-        log.warning("%s g%d->g%d: %s", peer_name, remote_gpu_idx,
-                    local_gpu_idx, exc)
+        log.warning("benchmark %s:g%d → local:g%d: lock error: %s",
+                    peer_name, remote_gpu_idx, local_gpu_idx, exc)
         return ("lock-err", peer_node, 0.0, 0.0)
     except OSError as exc:
         # Covers connection refused, timeout, socket errors from HTTP
         # calls to peers. Programming bugs (IndexError, TypeError, etc.)
         # are intentionally not caught — they should crash the process.
-        log.warning("%s g%d->g%d: %s", peer_name, remote_gpu_idx,
-                    local_gpu_idx, exc)
+        log.warning("benchmark %s:g%d → local:g%d: %s: %s",
+                    peer_name, remote_gpu_idx, local_gpu_idx,
+                    type(exc).__name__, exc)
         return ("err", peer_node, 0.0, 0.0)
 
     log.debug("benchmark done %s-g%d -> local-g%d: %.1f ms, %s",
@@ -1722,7 +1729,7 @@ def _run_one_poll_round():
         except PeerUnreachableError:
             log.warning("peer %s unreachable (DNS), skipping", pod_name)
             unreachable_peers[pod_name] = "unreachable"
-        except (PeerHTTPError, *_TRANSIENT_CONN_ERRORS) as exc:
+        except PrepareChunkError as exc:
             log.warning("peer %s: %s", pod_name, exc)
             unreachable_peers[pod_name] = "handle-fetch-err"
 
@@ -1908,7 +1915,8 @@ def peer_poll_loop_verify():
             except Exception:
                 log.exception("verify: IN_PROGRESS — poll round error:")
                 VERIFY_STATE = "FAILED"
-                log.error("verify: round %d failed (exception)",
+                log.error("verify: round %d failed (exception), "
+                          "permanently setting state to FAILED",
                           completed + 1)
                 continue
             if result is not None:
@@ -1927,7 +1935,8 @@ def peer_poll_loop_verify():
                              completed, VERIFY_ROUNDS)
             else:
                 VERIFY_STATE = "FAILED"
-                log.error("verify: round %d failed", completed + 1)
+                log.error("verify: round %d failed, permanently setting "
+                          "state to FAILED", completed + 1)
 
 
 def _wait_until(deadline):
