@@ -40,20 +40,26 @@ VERIFY_TIMEOUT_S="300"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --chunk-mib)
+            [[ $# -ge 2 ]] || { echo "Error: --chunk-mib requires a value"; exit 1; }
             ACK_CHUNK_MIB="$2"; shift 2 ;;
         --gpus-per-pod)
+            [[ $# -ge 2 ]] || { echo "Error: --gpus-per-pod requires a value"; exit 1; }
             ACK_GPUS_PER_NODE="$2"; shift 2 ;;
         --interval-s)
+            [[ $# -ge 2 ]] || { echo "Error: --interval-s requires a value"; exit 1; }
             ACK_POLL_INTERVAL_S="$2"; shift 2 ;;
         --gpus-via-dra)
             GPU_DRA=true; shift ;;
         --verify)
+            [[ $# -ge 2 ]] || { echo "Error: --verify requires a value (number of rounds)"; exit 1; }
             ACK_VERIFY_ROUNDS="$2"; shift 2 ;;
         --peer-discovery)
+            [[ $# -ge 2 ]] || { echo "Error: --peer-discovery requires a value"; exit 1; }
             ACK_PEER_DISCOVERY="$2"; shift 2 ;;
         --teardown-on-verify-error)
             TEARDOWN_ON_VERIFY_ERROR=true; shift ;;
         --verify-timeout)
+            [[ $# -ge 2 ]] || { echo "Error: --verify-timeout requires a value"; exit 1; }
             VERIFY_TIMEOUT_S="$2"; shift 2 ;;
         *)
             echo "Unknown option: $1"
