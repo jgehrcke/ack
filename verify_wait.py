@@ -89,7 +89,7 @@ def fetch_results(ip):
         return None
 
 
-def print_summary(pods):
+def print_summary(pods, show_stddev=False):
     """Fetch latest results from all pods and print a bandwidth matrix."""
     with ThreadPoolExecutor(max_workers=len(pods)) as pool:
         futures = {pool.submit(fetch_results, ip): name
@@ -162,7 +162,8 @@ def print_summary(pods):
 
     print()
     print_matrix("Bandwidth mean (GB/s):", matrix_mean)
-    print_matrix("Bandwidth stddev (GB/s):", matrix_std)
+    if show_stddev:
+        print_matrix("Bandwidth stddev (GB/s):", matrix_std)
 
 
 def poll_all(num_pods, verify_rounds):
@@ -213,14 +214,18 @@ def poll_all(num_pods, verify_rounds):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <num_pods> <verify_rounds> [timeout_s]",
+    # Parse positional args and optional --show-stddev flag.
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    show_stddev = "--show-stddev" in sys.argv
+
+    if len(args) < 2:
+        print(f"Usage: {sys.argv[0]} <num_pods> <verify_rounds> [timeout_s] [--show-stddev]",
               file=sys.stderr)
         sys.exit(1)
 
-    num_pods = int(sys.argv[1])
-    verify_rounds = int(sys.argv[2])
-    timeout_s = int(sys.argv[3]) if len(sys.argv) > 3 else TIMEOUT_S
+    num_pods = int(args[0])
+    verify_rounds = int(args[1])
+    timeout_s = int(args[2]) if len(args) > 2 else TIMEOUT_S
     log.info("waiting for %d pods × %d rounds (timeout: %ds)",
              num_pods, verify_rounds, timeout_s)
 
@@ -238,7 +243,7 @@ def main():
         if outcome == "ok":
             log.info("all %d pods passed %d rounds", num_pods, verify_rounds)
             pods = get_pods()
-            print_summary(pods)
+            print_summary(pods, show_stddev=show_stddev)
             sys.exit(0)
         if outcome == "failed":
             log.error("verification failed: %s reported FAILED",

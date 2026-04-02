@@ -36,6 +36,7 @@ export ACK_PEER_DISCOVERY="k8s-api"
 GPU_DRA=false
 TEARDOWN_ON_VERIFY_ERROR=false
 VERIFY_TIMEOUT_S="300"
+SHOW_STDDEV=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -58,6 +59,8 @@ while [[ $# -gt 0 ]]; do
             ACK_PEER_DISCOVERY="$2"; shift 2 ;;
         --teardown-on-verify-error)
             TEARDOWN_ON_VERIFY_ERROR=true; shift ;;
+        --show-stddev)
+            SHOW_STDDEV=true; shift ;;
         --verify-timeout)
             [[ $# -ge 2 ]] || { echo "Error: --verify-timeout requires a value"; exit 1; }
             VERIFY_TIMEOUT_S="$2"; shift 2 ;;
@@ -107,7 +110,9 @@ kubectl get pods -l app=ack -o wide
 if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
     echo "--- Verify mode: waiting for all pods to complete ${ACK_VERIFY_ROUNDS} full rounds"
     VERIFY_RC=0
-    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}" || VERIFY_RC=$?
+    STDDEV_FLAG=""
+    if [[ "$SHOW_STDDEV" == "true" ]]; then STDDEV_FLAG="--show-stddev"; fi
+    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}" $STDDEV_FLAG || VERIFY_RC=$?
     if [[ "$VERIFY_RC" -eq 0 ]]; then
         make -C "${SCRIPT_DIR}" clean
     elif [[ "$TEARDOWN_ON_VERIFY_ERROR" == "true" ]]; then
