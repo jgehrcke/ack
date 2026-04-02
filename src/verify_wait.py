@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from requests.adapters import HTTPAdapter
 
+logging.Formatter.converter = time.gmtime
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03dZ %(levelname)s: %(message)s",

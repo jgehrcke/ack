@@ -47,8 +47,10 @@ faulthandler.enable(file=_faulthandler_file, all_threads=True)
 # where to look.
 # Force immediate flush so crash diagnostics aren't lost in the buffer.
 _log_handler = logging.FileHandler(_dashboard_log_path, mode="w")
-_log_handler.setFormatter(logging.Formatter(
-    "%(asctime)s %(levelname)s: %(message)s", datefmt="%H:%M:%S"))
+_log_formatter = logging.Formatter(
+    "%(asctime)s %(levelname)s: %(message)s", datefmt="%H:%M:%S")
+_log_formatter.converter = time.gmtime
+_log_handler.setFormatter(_log_formatter)
 _log_handler.stream.reconfigure(line_buffering=True)
 dlog = logging.getLogger("dashboard")
 dlog.setLevel(logging.INFO)

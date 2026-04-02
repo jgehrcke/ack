@@ -9,12 +9,14 @@ Deploy a benchmark StatefulSet and optionally run verification.
 
 import argparse
 import logging
+import time
 import os
 import subprocess
 import sys
 from pathlib import Path
 from string import Template
 
+logging.Formatter.converter = time.gmtime
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03dZ %(message)s",
