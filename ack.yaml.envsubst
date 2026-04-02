@@ -145,9 +145,9 @@ spec:
           httpGet:
             path: /healthz
             port: 1337
-          periodSeconds: 3
+          periodSeconds: 2
           timeoutSeconds: 1
-          failureThreshold: 3
+          failureThreshold: 2
         resources:
           limits:
             nvidia.com/gpu: ${ACK_GPUS_PER_NODE}
