@@ -88,6 +88,10 @@ spec:
           value: "${ACK_POLL_INTERVAL_S}"
         - name: ACK_GPUS_PER_NODE
           value: "${ACK_GPUS_PER_NODE}"
+        - name: ACK_REPLICAS
+          value: "${ACK_REPLICAS}"
+        - name: ACK_VERIFY_ROUNDS
+          value: "${ACK_VERIFY_ROUNDS}"
         - name: ACK_POD_NAME
           valueFrom:
             fieldRef:

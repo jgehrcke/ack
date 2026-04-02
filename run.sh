@@ -12,7 +12,8 @@ usage() {
     echo "  --chunk-mib N          GPU memory chunk size in MiB (default: 2500)"
     echo "  --gpus-per-pod N      GPUs per pod (default: 4)"
     echo "  --interval-s N      run full benchmark (all-to-all) every N seconds (default: 1)"
-    echo "  --gpus-via-dra              use DRA for GPU allocation instead of device plugin"
+    echo "  --gpus-via-dra         use DRA for GPU allocation instead of device plugin"
+    echo "  --verify N             run N full benchmark rounds then exit (verification mode)"
     exit 1
 }
 
@@ -27,6 +28,7 @@ shift
 export ACK_CHUNK_MIB="2500"
 export ACK_GPUS_PER_NODE="4"
 export ACK_POLL_INTERVAL_S="1"
+export ACK_VERIFY_ROUNDS="0"
 GPU_DRA=false
 
 while [[ $# -gt 0 ]]; do
@@ -39,6 +41,8 @@ while [[ $# -gt 0 ]]; do
             ACK_POLL_INTERVAL_S="$2"; shift 2 ;;
         --gpus-via-dra)
             GPU_DRA=true; shift ;;
+        --verify)
+            ACK_VERIFY_ROUNDS="$2"; shift 2 ;;
         *)
             echo "Unknown option: $1"
             usage ;;
@@ -60,12 +64,13 @@ else
     TEMPLATE="${SCRIPT_DIR}/ack.yaml.envsubst"
 fi
 
-echo "--- Rendering manifest: ACK_REPLICAS=${ACK_REPLICAS}, ACK_CHUNK_MIB=${ACK_CHUNK_MIB}, ACK_GPUS_PER_NODE=${ACK_GPUS_PER_NODE}, ACK_POLL_INTERVAL_S=${ACK_POLL_INTERVAL_S}"
+echo "--- Rendering manifest: ACK_REPLICAS=${ACK_REPLICAS}, ACK_CHUNK_MIB=${ACK_CHUNK_MIB}, ACK_GPUS_PER_NODE=${ACK_GPUS_PER_NODE}, ACK_POLL_INTERVAL_S=${ACK_POLL_INTERVAL_S}, ACK_VERIFY_ROUNDS=${ACK_VERIFY_ROUNDS}"
 RENDERED=$(sed \
     -e "s|\${ACK_REPLICAS}|${ACK_REPLICAS}|g" \
     -e "s|\${ACK_CHUNK_MIB}|${ACK_CHUNK_MIB}|g" \
     -e "s|\${ACK_GPUS_PER_NODE}|${ACK_GPUS_PER_NODE}|g" \
     -e "s|\${ACK_POLL_INTERVAL_S}|${ACK_POLL_INTERVAL_S}|g" \
+    -e "s|\${ACK_VERIFY_ROUNDS}|${ACK_VERIFY_ROUNDS}|g" \
     < "$TEMPLATE")
 
 echo "--- Applying manifest"

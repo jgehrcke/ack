@@ -265,6 +265,10 @@ K8S_PODNAME = os.environ.get("ACK_POD_NAME", socket.gethostname())  # Pod name (
 K8S_NAMESPACE = os.environ.get("ACK_POD_NAMESPACE", "default")      # Pod namespace (from downward API)
 K8S_NODENAME = os.environ.get("ACK_NODE_NAME", "unknown")           # Node name (from downward API)
 DTOD_REPEAT_COUNT = int(os.environ.get("ACK_DTOD_REPEAT_COUNT", "2"))  # DtoD iterations per benchmark, report best
+REPLICAS = int(os.environ.get("ACK_REPLICAS", "0"))                    # Total StatefulSet replicas (for verify mode)
+VERIFY_ROUNDS = int(os.environ.get("ACK_VERIFY_ROUNDS", "0"))         # 0 = continuous mode (default)
+VERIFY_MODE = VERIFY_ROUNDS > 0
+VERIFY_STARTUP_TIMEOUT_S = 120                                         # Max wait for first full round in verify mode
 CHECKSUM_REL_TOLERANCE = 1e-5
 
 # Per-GPU state, keyed by gpu_idx (0..GPUS_PER_NODE-1). Set during cuda_init().
@@ -323,6 +327,9 @@ RESULTS_HISTORY = collections.deque(maxlen=RESULTS_HISTORY_MAX)
 # Graceful shutdown coordination. Set by SIGTERM/SIGINT handler.
 # Components check this to wind down cleanly.
 SHUTTING_DOWN = threading.Event()
+
+# Verification mode state.
+VERIFY_OK = False     # Set to True when all verify rounds pass.
 
 # Cache of imported fabric handles and VA mappings. Avoids the expensive
 # cuMemImportFromShareableHandle + cuMemMap + cuMemSetAccess on every
@@ -438,9 +445,10 @@ def main():
 
     log.info("pod name: %s", K8S_PODNAME)
     log.info("config: HTTPD_PORT=%s CHUNK_MIB=%s FLOAT_VALUE=%s SVC_NAME=%s "
-             "POLL_INTERVAL_S=%s GPUS_PER_NODE=%s",
+             "POLL_INTERVAL_S=%s GPUS_PER_NODE=%s REPLICAS=%s "
+             "VERIFY_ROUNDS=%s",
              HTTPD_PORT, CHUNK_MIB, FLOAT_VALUE, SVC_NAME, POLL_INTERVAL_S,
-             GPUS_PER_NODE)
+             GPUS_PER_NODE, REPLICAS, VERIFY_ROUNDS)
 
     log.info("cuDriverGetVersion(): %s", cucheck(driver.cuDriverGetVersion()))
 
@@ -476,7 +484,24 @@ def main():
     signal.signal(signal.SIGINT, _signal_handler)
 
     log.info("all threads started, main thread waiting")
+
     SHUTTING_DOWN.wait()
+
+    # In verify mode, wait for peers to also finish before tearing down.
+    # HTTP server is still running so peers can see our verify_ok=true.
+    # Timeout after 60s to avoid hanging indefinitely.
+    if VERIFY_OK:
+        VERIFY_LINGER_TIMEOUT_S = 60
+        deadline = time.monotonic() + VERIFY_LINGER_TIMEOUT_S
+        log.info("verify: waiting up to %ds for peers to finish",
+                 VERIFY_LINGER_TIMEOUT_S)
+        while time.monotonic() < deadline:
+            if _verify_all_peers_done():
+                log.info("verify: all peers done")
+                break
+            time.sleep(1)
+        else:
+            log.warning("verify: linger timeout, proceeding to shutdown")
 
     # Graceful shutdown sequence:
     # 1. SHUTTING_DOWN is set — HTTP handler rejects new /prepare-chunk
@@ -505,6 +530,15 @@ def main():
         log.error("atexit cleanup hung for 10s, forcing exit")
         os._exit(1)
     threading.Thread(target=_hard_exit_watchdog, daemon=True).start()
+
+    # Determine exit code for verification mode.
+    if VERIFY_MODE:
+        if VERIFY_OK:
+            log.info("verify: all %d rounds passed, exiting 0", VERIFY_ROUNDS)
+            return 0
+        log.error("verify: failed, exiting 1")
+        return 1
+    return 0
 
 
 def cuda_init():
@@ -1733,12 +1767,97 @@ def _run_one_poll_round():
         "ok": ok_count,
         "errors": len(results) - ok_count,
     }
-    RESULTS_HISTORY.append(final_result)
-
     my_idx = K8S_PODNAME.rsplit("-", 1)[1]
     parts = [f"{b['key']}:{b['value']}" for b in benchmarks_sorted]
     log.info("result(%s@%s): round_time=%.1fs %s",
              my_idx, K8S_NODENAME, round_dur, " ".join(parts))
+    return final_result
+
+
+def _verify_all_peers_done():
+    """Check if all peers have also completed verification.
+
+    A peer is considered done if it reports verify_done=true in its
+    /results response, or if it's unreachable (already exited).
+    Returns True when all peers are done.
+    """
+    try:
+        peers = discover_peers()
+    except Exception:
+        return False
+
+    for pod_name, peer_host in peers:
+        try:
+            status, body = _http_do("GET", peer_host, HTTPD_PORT,
+                                    "/results", timeout=1)
+            if status == 200:
+                data = json.loads(body)
+                if not data.get("verify_ok"):
+                    log.info("verify: peer %s not done yet", pod_name)
+                    return False
+        except Exception:
+            # Unreachable — peer already exited, consider it done.
+            pass
+
+    return True
+
+
+def _verify_round_passed(result, expected_benchmarks):
+    """A round is full if all expected benchmarks completed without errors."""
+    return result["total"] == expected_benchmarks and result["errors"] == 0
+
+
+class _VerifyState:
+    """Tracks verification mode progress. Call add_result_and_check()
+    after each poll round to evaluate whether to continue."""
+
+    def __init__(self):
+        self.expected_benchmarks_per_round = (
+            (REPLICAS - 1) * GPUS_PER_NODE * GPUS_PER_NODE)
+        self.completed = 0
+        self.first_full_seen = False
+        self.start_time = time.monotonic()
+        log.info("verify: expecting %d benchmarks per full round "
+                 "(%d peers × %d GPU pairs), need %d full rounds",
+                 self.expected_benchmarks_per_round, REPLICAS - 1,
+                 GPUS_PER_NODE * GPUS_PER_NODE, VERIFY_ROUNDS)
+
+    def add_result_and_check(self, result):
+        """Evaluate one round. result is the dict from
+        _run_one_poll_round(), or None if the round produced no result
+        or raised an exception.
+
+        Sets VERIFY_OK and SHUTTING_DOWN on completion or failure.
+        """
+        global VERIFY_OK
+
+        passed = (result is not None and _verify_round_passed(
+            result, self.expected_benchmarks_per_round))
+
+        if passed:
+            self.completed += 1
+            self.first_full_seen = True
+            log.info("verify: round %d/%d OK", self.completed,
+                     VERIFY_ROUNDS)
+            if self.completed == VERIFY_ROUNDS:
+                log.info("verify: all %d rounds passed", VERIFY_ROUNDS)
+                VERIFY_OK = True
+                SHUTTING_DOWN.set()
+            return
+
+        if not self.first_full_seen:
+            # Startup phase: partial/failed rounds tolerated.
+            elapsed = time.monotonic() - self.start_time
+            log.info("verify: waiting for peers (%.0fs/%.0fs)",
+                     elapsed, VERIFY_STARTUP_TIMEOUT_S)
+            if elapsed > VERIFY_STARTUP_TIMEOUT_S:
+                log.error("verify: startup timeout after %.0fs", elapsed)
+                SHUTTING_DOWN.set()
+            return
+
+        # After first success, every round must be full.
+        log.error("verify: round %d failed", self.completed + 1)
+        SHUTTING_DOWN.set()
 
 
 def peer_poll_loop():
@@ -1747,17 +1866,29 @@ def peer_poll_loop():
     time.sleep(POLL_INTERVAL_S)
     next_deadline = time.monotonic()
 
+    vstate = _VerifyState() if VERIFY_MODE else None
+
     while not SHUTTING_DOWN.is_set():
         next_deadline += POLL_INTERVAL_S
+
+        result = None
         try:
-            _run_one_poll_round()
+            result = _run_one_poll_round()
+            if result is not None:
+                RESULTS_HISTORY.append(result)
         except dns.resolver.NXDOMAIN:
-            log.info("peer poll: DNS name does not exist yet (expected at startup)")
+            log.info("peer poll: DNS name does not exist yet "
+                     "(expected at startup)")
         except Exception:
             log.exception("peer poll error:")
+
+        if vstate and not SHUTTING_DOWN.is_set():
+            vstate.add_result_and_check(result)
+
         if SHUTTING_DOWN.is_set():
             log.info("peer poll: shutdown requested, exiting loop")
             break
+
         remaining = next_deadline - time.monotonic()
         log.info("waiting %.1fs for next poll deadline", max(0, remaining))
         _wait_until(next_deadline)
@@ -1881,6 +2012,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 "results": results,
                 "fatal_cuda_error": FATAL_CUDA_ERROR,
                 "shutting_down": SHUTTING_DOWN.is_set(),
+                "verify_ok": VERIFY_OK if VERIFY_MODE else None,
             })
             self._respond_json(body)
             return
@@ -2081,7 +2213,8 @@ def log_device_properties():
 
 if __name__ == "__main__":
     try:
-        main()
+        rc = main()
     except Exception:
         log.exception("main() crashed:")
         sys.exit(1)
+    sys.exit(rc or 0)
