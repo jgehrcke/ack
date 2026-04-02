@@ -137,6 +137,10 @@ class LockError(AckError):
     """Raised when GPU lock acquisition fails (timeout, connection error)."""
 
 
+class PeerHTTPError(AckError):
+    """Raised when a peer returns an HTTP error (e.g., 503 during shutdown)."""
+
+
 class PeerUnreachableError(AckError):
     """Raised when a peer pod cannot be reached (DNS failure, connection refused).
     The caller should skip all remaining GPU pairs for this peer."""
@@ -517,7 +521,9 @@ def main():
         os._exit(1)
     threading.Thread(target=_hard_exit_watchdog, daemon=True).start()
 
-    return 0
+    # Explicit exit. Without this, Python's interpreter shutdown waits
+    # for non-daemon HTTP handler threads, causing the process to hang.
+    sys.exit(0)
 
 
 def cuda_init():
@@ -1106,7 +1112,7 @@ def fetch_chunk_meta(peer_host: str, port: int, gpu_index: int) -> dict:
     status, body = _http_do("GET", peer_host, port, path, timeout=1)
     if status != 200:
         log.error("peer returned HTTP %s: %s", status, body.decode())
-        raise RuntimeError(f"prepare-chunk: HTTP {status}")
+        raise PeerHTTPError(f"prepare-chunk: HTTP {status}")
     return json.loads(body)
 
 
@@ -1131,7 +1137,7 @@ def _fetch_chunk_meta_with_retry(peer_host, port, gpu_index, peer_name):
     for attempt in range(2):
         try:
             return fetch_chunk_meta(peer_host, port, gpu_index)
-        except _TRANSIENT_CONN_ERRORS as exc:
+        except (*_TRANSIENT_CONN_ERRORS, PeerHTTPError) as exc:
             msg = str(exc)
             if isinstance(exc, socket.gaierror):
                 log.warning("peer %s unreachable (DNS): %s", peer_name, msg)
@@ -1144,9 +1150,6 @@ def _fetch_chunk_meta_with_retry(peer_host, port, gpu_index, peer_name):
                 log.warning("fetch chunk %s gpu %d: %s (giving up)", peer_name,
                             gpu_index, msg)
                 raise
-        except Exception:
-            log.exception("fetch chunk %s gpu %d failed:", peer_name, gpu_index)
-            raise
 
 
 def import_fabric_handle(handle_bytes: bytes):
@@ -1707,11 +1710,10 @@ def _run_one_poll_round():
             peer_metas[pod_name] = _prefetch_peer_chunk_metas(
                 pod_name, peer_host, HTTPD_PORT)
         except PeerUnreachableError:
-            log.warning("lost peer %s — DNS resolution failed, skipping for this round",
-                        pod_name)
+            log.warning("peer %s unreachable (DNS), skipping", pod_name)
             unreachable_peers[pod_name] = "unreachable"
-        except Exception:
-            log.exception("failed to prefetch chunk metas from %s:", pod_name)
+        except (PeerHTTPError, *_TRANSIENT_CONN_ERRORS) as exc:
+            log.warning("peer %s: %s", pod_name, exc)
             unreachable_peers[pod_name] = "handle-fetch-err"
 
     if not peer_metas and not unreachable_peers:
@@ -1905,6 +1907,10 @@ def peer_poll_loop():
             break
 
         if not VERIFY_MODE or VERIFY_OK:
+            # Reset deadline after verify completes — back-to-back rounds
+            # cause the deadline to drift far ahead of wall time.
+            if VERIFY_OK and next_deadline - time.monotonic() > POLL_INTERVAL_S:
+                next_deadline = time.monotonic() + POLL_INTERVAL_S
             remaining = next_deadline - time.monotonic()
             if remaining > 0:
                 log.info("waiting %.1fs for next poll deadline", remaining)
