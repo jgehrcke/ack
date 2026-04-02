@@ -10,8 +10,8 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --chunk-mib N          GPU memory chunk size in MiB (default: 2500)"
-    echo "  --gpus-per-pod N      GPUs per pod (default: 4)"
-    echo "  --interval-s N      run full benchmark (all-to-all) every N seconds (default: 1)"
+    echo "  --gpus-per-pod N       GPUs per pod (default: 4)"
+    echo "  --interval-s N         run full benchmark (all-to-all) every N seconds (default: 1)"
     echo "  --gpus-via-dra         use DRA for GPU allocation instead of device plugin"
     echo "  --verify N             run N full benchmark rounds then exit (verification mode)"
     exit 1
@@ -81,3 +81,11 @@ kubectl rollout status statefulset/ack --timeout=300s
 
 echo "--- Pod status"
 kubectl get pods -l app=ack -o wide
+
+if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
+    echo "--- Verify mode: waiting for all pods to complete ${ACK_VERIFY_ROUNDS} full rounds"
+    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}"
+    VERIFY_RC=$?
+    make -C "${SCRIPT_DIR}" clean
+    exit $VERIFY_RC
+fi

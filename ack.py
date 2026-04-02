@@ -329,7 +329,8 @@ RESULTS_HISTORY = collections.deque(maxlen=RESULTS_HISTORY_MAX)
 SHUTTING_DOWN = threading.Event()
 
 # Verification mode state.
-VERIFY_OK = False     # Set to True when all verify rounds pass.
+VERIFY_OK = False              # Set to True when all verify rounds pass.
+VERIFY_ROUNDS_COMPLETED = 0    # Number of full rounds completed so far.
 
 # Cache of imported fabric handles and VA mappings. Avoids the expensive
 # cuMemImportFromShareableHandle + cuMemMap + cuMemSetAccess on every
@@ -487,22 +488,6 @@ def main():
 
     SHUTTING_DOWN.wait()
 
-    # In verify mode, wait for peers to also finish before tearing down.
-    # HTTP server is still running so peers can see our verify_ok=true.
-    # Timeout after 60s to avoid hanging indefinitely.
-    if VERIFY_OK:
-        VERIFY_LINGER_TIMEOUT_S = 60
-        deadline = time.monotonic() + VERIFY_LINGER_TIMEOUT_S
-        log.info("verify: waiting up to %ds for peers to finish",
-                 VERIFY_LINGER_TIMEOUT_S)
-        while time.monotonic() < deadline:
-            if _verify_all_peers_done():
-                log.info("verify: all peers done")
-                break
-            time.sleep(1)
-        else:
-            log.warning("verify: linger timeout, proceeding to shutdown")
-
     # Graceful shutdown sequence:
     # 1. SHUTTING_DOWN is set — HTTP handler rejects new /prepare-chunk
     #    and /lock-gpu with 503. No new benchmarks will start using our
@@ -531,13 +516,6 @@ def main():
         os._exit(1)
     threading.Thread(target=_hard_exit_watchdog, daemon=True).start()
 
-    # Determine exit code for verification mode.
-    if VERIFY_MODE:
-        if VERIFY_OK:
-            log.info("verify: all %d rounds passed, exiting 0", VERIFY_ROUNDS)
-            return 0
-        log.error("verify: failed, exiting 1")
-        return 1
     return 0
 
 
@@ -1774,34 +1752,6 @@ def _run_one_poll_round():
     return final_result
 
 
-def _verify_all_peers_done():
-    """Check if all peers have also completed verification.
-
-    A peer is considered done if it reports verify_done=true in its
-    /results response, or if it's unreachable (already exited).
-    Returns True when all peers are done.
-    """
-    try:
-        peers = discover_peers()
-    except Exception:
-        return False
-
-    for pod_name, peer_host in peers:
-        try:
-            status, body = _http_do("GET", peer_host, HTTPD_PORT,
-                                    "/results", timeout=1)
-            if status == 200:
-                data = json.loads(body)
-                if not data.get("verify_ok"):
-                    log.info("verify: peer %s not done yet", pod_name)
-                    return False
-        except Exception:
-            # Unreachable — peer already exited, consider it done.
-            pass
-
-    return True
-
-
 def _verify_round_passed(result, expected_benchmarks):
     """A round is full if all expected benchmarks completed without errors."""
     return result["total"] == expected_benchmarks and result["errors"] == 0
@@ -1829,20 +1779,20 @@ class _VerifyState:
 
         Sets VERIFY_OK and SHUTTING_DOWN on completion or failure.
         """
-        global VERIFY_OK
+        global VERIFY_OK, VERIFY_ROUNDS_COMPLETED
 
         passed = (result is not None and _verify_round_passed(
             result, self.expected_benchmarks_per_round))
 
         if passed:
             self.completed += 1
+            VERIFY_ROUNDS_COMPLETED = self.completed
             self.first_full_seen = True
             log.info("verify: round %d/%d OK", self.completed,
                      VERIFY_ROUNDS)
             if self.completed == VERIFY_ROUNDS:
                 log.info("verify: all %d rounds passed", VERIFY_ROUNDS)
                 VERIFY_OK = True
-                SHUTTING_DOWN.set()
             return
 
         if not self.first_full_seen:
@@ -2013,6 +1963,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 "fatal_cuda_error": FATAL_CUDA_ERROR,
                 "shutting_down": SHUTTING_DOWN.is_set(),
                 "verify_ok": VERIFY_OK if VERIFY_MODE else None,
+                "verify_rounds_completed": VERIFY_ROUNDS_COMPLETED if VERIFY_MODE else None,
             })
             self._respond_json(body)
             return
@@ -2213,8 +2164,7 @@ def log_device_properties():
 
 if __name__ == "__main__":
     try:
-        rc = main()
+        main()
     except Exception:
         log.exception("main() crashed:")
         sys.exit(1)
-    sys.exit(rc or 0)
