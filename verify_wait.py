@@ -160,6 +160,7 @@ def poll_all(num_pods, verify_rounds):
 
     parts = []
     any_failed = False
+    failed_pods = []
     all_succeeded = len(results) == num_pods
     for name, state, rounds_completed, err in results:
         if err:
@@ -170,6 +171,7 @@ def poll_all(num_pods, verify_rounds):
         elif state == "FAILED":
             parts.append(f"{name}=FAILED")
             any_failed = True
+            failed_pods.append(name)
         elif state == "IN_PROGRESS":
             parts.append(f"{name}=IN_PROGRESS({rounds_completed}/{verify_rounds})")
             all_succeeded = False
@@ -180,10 +182,10 @@ def poll_all(num_pods, verify_rounds):
     log.info("%s", " ".join(parts))
 
     if any_failed:
-        return "failed"
+        return ("failed", failed_pods)
     if all_succeeded:
-        return "ok"
-    return "pending"
+        return ("ok", [])
+    return ("pending", [])
 
 
 def main():
@@ -203,14 +205,15 @@ def main():
             log.error("timeout after %ds", TIMEOUT_S)
             sys.exit(1)
 
-        outcome = poll_all(num_pods, verify_rounds)
+        outcome, failed_pods = poll_all(num_pods, verify_rounds)
         if outcome == "ok":
             log.info("all %d pods passed %d rounds", num_pods, verify_rounds)
             pods = get_pods()
             print_summary(pods)
             sys.exit(0)
         if outcome == "failed":
-            log.error("verification failed")
+            log.error("verification failed: %s reported FAILED",
+                      ", ".join(failed_pods))
             sys.exit(1)
 
 

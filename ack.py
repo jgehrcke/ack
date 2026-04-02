@@ -210,7 +210,10 @@ def cucheck(result):
 _tls = threading.local()
 
 
-def _http_conn(host, port, timeout):
+CONNECT_TIMEOUT_S = 0.5  # TCP connect timeout for all peer HTTP calls.
+
+
+def _http_conn(host, port):
     """Get or create a persistent HTTPConnection for this thread."""
     conns = getattr(_tls, "conns", None)
     if conns is None:
@@ -219,9 +222,8 @@ def _http_conn(host, port, timeout):
     key = (host, port)
     conn = conns.get(key)
     if conn is not None:
-        conn.timeout = timeout
         return conn
-    conn = http.client.HTTPConnection(host, port, timeout=timeout)
+    conn = http.client.HTTPConnection(host, port, timeout=CONNECT_TIMEOUT_S)
     conns[key] = conn
     return conn
 
@@ -235,15 +237,27 @@ def _http_conn_close(host, port):
             conn.close()
 
 
-def _http_do(method, host, port, path, timeout):
+def _http_do(method, host, port, path, recv_timeout=2):
     """HTTP request with persistent connection and transparent reconnect.
+
+    TCP connect uses CONNECT_TIMEOUT_S (0.5s). After the request is sent,
+    the socket timeout is raised to recv_timeout for the response wait
+    (e.g., lock-gpu may block for seconds while waiting for the lock).
 
     Returns (status, body_bytes). Retries once on stale connection.
     """
     for attempt in range(2):
-        conn = _http_conn(host, port, timeout)
+        conn = _http_conn(host, port)
         try:
+            # Set short timeout for connect + send. If the connection is
+            # already established, this limits how long we wait for the
+            # send to complete (detects dead peers quickly).
+            if conn.sock:
+                conn.sock.settimeout(CONNECT_TIMEOUT_S)
             conn.request(method, path)
+            # Request sent — raise timeout for the response wait.
+            if conn.sock:
+                conn.sock.settimeout(recv_timeout)
             resp = conn.getresponse()
             body = resp.read()
             return resp.status, body
@@ -394,7 +408,7 @@ def cuda_cleanup():
     for peer_host, port, gpu_index, token in list(HELD_REMOTE_LOCKS):
         try:
             path = f"/unlock-gpu?gpu_index={gpu_index}&token={token}"
-            _http_do("POST", peer_host, port, path, timeout=0.5)
+            _http_do("POST", peer_host, port, path, recv_timeout=0.5)
             log.info("cuda_cleanup: released remote lock %s gpu %d",
                      peer_host, gpu_index)
         except Exception:
@@ -714,7 +728,7 @@ def acquire_remote_gpu_lock(peer_host: str, port: int, gpu_index: int) -> tuple[
     t0 = time.monotonic()
     path = f"/lock-gpu?gpu_index={gpu_index}&holder={K8S_PODNAME}"
     status, body = _http_do("POST", peer_host, port, path,
-                            timeout=GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S)
+                            recv_timeout=GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S)
     if status != 200:
         raise LockError(f"lock-gpu failed: HTTP {status}: {body.decode()}")
     wait_ms = (time.monotonic() - t0) * 1000
@@ -739,7 +753,7 @@ def release_remote_gpu_lock(peer_host: str, port: int, gpu_index: int,
     path = f"/unlock-gpu?gpu_index={gpu_index}&token={token}"
     for attempt in range(7):
         try:
-            _http_do("POST", peer_host, port, path, timeout=2)
+            _http_do("POST", peer_host, port, path, recv_timeout=2)
             return
         except Exception as exc:
             log.warning("failed to release remote GPU lock on %s gpu %d "
@@ -776,7 +790,7 @@ def _broadcast_evict_to_peers():
         deadline = time.monotonic() + EVICT_BUDGET_S
         # First attempt: up to 15s.
         try:
-            _http_do("POST", peer_host, HTTPD_PORT, path, timeout=15)
+            _http_do("POST", peer_host, HTTPD_PORT, path, recv_timeout=15)
             log.info("shutdown: evict-peer confirmed by %s", pod_name)
             return
         except Exception as exc:
@@ -788,7 +802,7 @@ def _broadcast_evict_to_peers():
             log.warning("shutdown: evict-peer to %s: no time for retry", pod_name)
             return
         try:
-            _http_do("POST", peer_host, HTTPD_PORT, path, timeout=remaining)
+            _http_do("POST", peer_host, HTTPD_PORT, path, recv_timeout=remaining)
             log.info("shutdown: evict-peer confirmed by %s (attempt 2)",
                      pod_name)
         except Exception as exc:
@@ -1110,7 +1124,7 @@ def fetch_chunk_meta(peer_host: str, port: int, gpu_index: int) -> dict:
         OSError: On connection or timeout failure.
     """
     path = f"/prepare-chunk?gpu_index={gpu_index}"
-    status, body = _http_do("GET", peer_host, port, path, timeout=1)
+    status, body = _http_do("GET", peer_host, port, path, recv_timeout=1)
     if status != 200:
         log.error("peer returned HTTP %s: %s", status, body.decode())
         raise PeerHTTPError(f"prepare-chunk: HTTP {status}")
