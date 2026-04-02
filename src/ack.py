@@ -741,9 +741,9 @@ def acquire_remote_gpu_lock(peer_host: str, port: int, gpu_index: int) -> tuple[
         status, body = _http_do("POST", peer_host, port, path,
                                 recv_timeout=GPU_LOCK_ACQUIRE_HTTP_TIMEOUT_S)
     except OSError as exc:
-        raise LockError(f"lock-gpu {peer_host}: {exc}") from exc
+        raise LockError(f"remote lock-gpu failed ({peer_host}:g{gpu_index}): {exc}") from exc
     if status != 200:
-        raise LockError(f"lock-gpu failed: HTTP {status}: {body.decode()}")
+        raise LockError(f"remote lock-gpu failed ({peer_host}:g{gpu_index}): HTTP {status}: {body.decode()}")
     wait_ms = (time.monotonic() - t0) * 1000
     token = body.decode()
     log.debug("remote lock %s GPU %d: acquired in %.1f ms",
