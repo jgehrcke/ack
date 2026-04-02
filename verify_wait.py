@@ -230,8 +230,7 @@ def main():
 
         elapsed = time.monotonic() - start
         if elapsed > timeout_s:
-            log.error("timeout: no result after %ds (limit: %ds)",
-                      int(elapsed), timeout_s)
+            log.error("verification did not complete within %ds", timeout_s)
             sys.exit(1)
 
         outcome, failed_pods = poll_all(num_pods, verify_rounds)
