@@ -69,14 +69,16 @@ Verification mode requires N consecutive error-free all-to-all benchmark rounds.
 ./ack 5 --verify 10
 ```
 
-Specifically:
-* _Partial_ result sets are tolerated during a 120s startup phase while peers come online.
-* After the first full result set, any partial set is a failure.
-* Definition of a _full_ result set: all memcpy operations succeeded for the expected set of GPU pairs (`(num_pods-1) × gpus_per_pod²` operations).
+Decisive differences to continuous mode:
+* After the first _full_ result set, any _partial_ set is fatal.
+* Partial result sets are tolerated during a 120s startup phase while peers come online.
+* Rounds run back-to-back (no interval delay).
+* Liveness probe ignores memcpy failures (containers don't get restarted).
 
-Rounds run back-to-back (no interval delay).
+Definition of a _full_ result set: all memcpy operations succeeded for the _expected_ set of GPU pairs (`(num_pods-1) × gpus_per_pod²` operations).
 
-Under the hood, `verify_wait.py` periodically polls pod state and determines the final outcome (success, early failure, or timeout).
+Client-side, `verify_wait.py` periodically polls state and determines the overall outcome (success, early failure, or timeout).
+
 Upon success, a bandwidth matrix is written to stdout, and the workload is torn down.
 
 Exit code: 0 on success, non-zero on failure.
