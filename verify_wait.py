@@ -51,6 +51,24 @@ def get_pods():
     return pods
 
 
+def _short_error(exc):
+    """Extract the essential error from a requests exception."""
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return f"connect timed out ({HTTP_TIMEOUT[0]}s)"
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return f"read timed out ({HTTP_TIMEOUT[1]}s)"
+    # Extract the innermost bracketed error, e.g.,
+    # "[Errno 111] Connection refused" from the verbose requests wrapper.
+    import re
+    m = re.search(r'\[Errno \d+\] [^")\]]+', str(exc))
+    if m:
+        return m.group(0)
+    s = str(exc)
+    if len(s) > 50:
+        return s[:20] + "..." + s[-30:]
+    return s
+
+
 def poll_pod(name, ip):
     """Return (pod_name, verify_state, rounds_completed, error)."""
     try:
@@ -59,7 +77,7 @@ def poll_pod(name, ip):
         return (name, data.get("verify_state"),
                 data.get("verify_rounds_completed", 0), None)
     except Exception as exc:
-        return (name, None, 0, str(exc))
+        return (name, None, 0, _short_error(exc))
 
 
 def fetch_results(ip):
