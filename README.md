@@ -8,71 +8,91 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ![Dashboard](screenshot.png)
 
+Disclaimer(JP): this project has been authored with the help of Claude. Decisive parts have however been very carefully engineered.
+
 ## Requirements
 
 - `make`, [`uv`](https://docs.astral.sh/uv/), and `kubectl` are available in your local environment.
 - `KUBECONFIG` points to your target Kubernetes cluster.
 - The NVIDIA DRA Driver for GPUs is installed, with `ComputeDomain` support enabled.
 
+## Usage
 
-## CLI reference
+### Deploy with `./ack`
 
-Cleans up resources from previous runs, renders the manifest template, applies it, and waits for rollout.
+This command
+1. cleans up resources from previous runs,
+2. renders k8s manifest templates, applies them, waits for rollout,
+3. optionally performs validation and cleanup
+4. terminates with a credible exit code.
+
+**Command reference:**
 
 ```
-./ack <num_pods> [options]
+./ack <num-pods> [options]
 ```
 
 | Argument&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Description |
 |---|---|
-| `num_pods` | Number of StatefulSet replicas (one pod per node). Required. |
+| `num-pods` | Number of StatefulSet replicas (one pod per node). Required. |
 | `--chunk-mib N` | GPU memory chunk size in MiB per transfer (default: 2500, max: 4096). |
 | `--gpus-per-pod N` | GPUs per pod (default: 4). |
 | `--interval-s N` | Run full benchmark (all-to-all) every N seconds (default: 1, ignored in verification mode). |
-| `--gpus-via-dra` | Request GPUs via DRA instead of the device plugin. |
+| `--gpus-via-dra` | Request GPUs via DRA instead of device plugin. |
 | `--verify N` | Verification mode (see below). |
-| `--verify-timeout N` | Timeout in seconds for verification (default: 300). |
-| `--teardown-on-verify-error` | Tear down resources even on verify failure (default: keep for debugging). |
+| `--verify-timeout N` | Timeout in seconds for verification mode (default: 300). |
+| `--teardown-on-verify-error` | Tear down resources upon verify failure (default: keep for debugging). |
 | `--show-stddev` | Show bandwidth standard deviation matrix after verification succeeds. |
-| `--peer-discovery M` | Peer discovery method: `k8s-api` (default) or `dns`. The K8s API is faster (no DNS propagation delay) but requires RBAC for pod listing. |
+| `--peer-discovery MODE` | Peer discovery method: `k8s-api` (default) or `dns`. The K8s API is faster (no DNS propagation delay) but requires RBAC for pod listing. |
 
+### Continuous benchmarking mode
 
-## Usage
+Default mode. Example:
 
-**Continuous mode**
+```
+./ack 3 --gpus-per-pod 2
+```
 
-This is the default mode.
+In this mode, pods perform memcpy operations indefinitely until terminated.
+Use `make dashboard` to monitor pods and bandwidth results in real time.
 
-Pods benchmark indefinitely until terminated.
-Use the dashboard (see below) to monitor pods and bandwidth results in real time.
+Continuous benchmarking mode by design is fault-tolerant and not ideal for automated system verification.
+For verification use cases, use `--verify` as described below.
 
-**Verification mode (for CI/QA)**
+Use `make clean` to tear down the deployment.
 
-Disable continuous mode and enable verification mode by specifying `--verify`, e.g.:
+### Verification mode (for CI/QA)
+
+Verification mode requires N consecutively passing all-to-all benchmark rounds. Example:
 
 ```
 ./ack 5 --verify 10
 ```
 
-Requires N full benchmark rounds to pass consecutively.
-A full round requires all `(replicas-1) × gpus_per_pod²` benchmarks to succeed.
-Partial rounds are tolerated during a 120s startup phase while peers come online.
+A _full_ benchmark round means that `(num_pods-1) × gpus_per_pod²` memcpy operations succeeded.
+_Partial_ rounds are tolerated during a 120s startup phase while peers come online.
 After the first full round, any non-full round is a failure.
 Rounds run back-to-back (no interval delay).
 
-Invokes `verify_wait.py` to poll all pods for results (until completion or timeout).
+Under the hood, `verify_wait.py` periodically polls pod state and determines the final outcome (success, early failure, or timeout).
+Upon success, a bandwidth matrix is written to stdout, and the workload is torn down.
 
-Upon success, prints mean and stddev bandwidth matrices and tears down the workload. Exit code 0 on success.
+Exit code: 0 on success, non-zero on failure.
 
-**Dashboard**
+### Dashboard
+
+The TUI dashboard can be invoked at any time:
 
 ```
 make dashboard
 ```
 
+It adapts to the cluster state in real time.
 Press `U` / `D` to scale up or down.
 
-**Simulate node replacement/failure**
+### Simulate node replacement/failure
+
+There are two helper scripts
 
 ```
 ./simulate-node-replacement.sh
@@ -82,7 +102,7 @@ Press `U` / `D` to scale up or down.
 The first script performs a controlled cordon + drain.
 The second force-kills a pod and its IMEX daemon to simulate unexpected node failure.
 
-## Method
+## Methodology
 
 The application is deployed as a Kubernetes StatefulSet.
 Each pod in this set runs a main loop which repeats:
