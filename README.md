@@ -8,6 +8,12 @@ Originally built to demonstrate the **elasticity** of ComputeDomains (see [NVIDI
 
 ![Dashboard](screenshot.png)
 
+## Requirements
+
+- [uv](https://docs.astral.sh/uv/) — runs Python scripts and manages dependencies
+- `kubectl` — configured with access to the target cluster
+- `docker` — only needed for building the container image (`make build`)
+
 ## CLI reference
 
 Cleans up resources from previous runs, renders the manifest template, applies it, and waits for rollout.
