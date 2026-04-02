@@ -28,7 +28,7 @@ log = logging.getLogger()
 
 POLL_INTERVAL_S = 0.5
 TIMEOUT_S = 300
-HTTP_TIMEOUT = (0.5, 1.5)  # (connect, recv) seconds
+HTTP_TIMEOUT = (0.3, 0.8)  # (connect, recv) seconds
 
 # Session with no internal retries.
 _session = requests.Session()
@@ -243,6 +243,16 @@ def main():
         if outcome == "failed":
             log.error("verification failed: %s reported FAILED",
                       ", ".join(failed_pods))
+            for pod_name in failed_pods:
+                try:
+                    tail = subprocess.check_output(
+                        ["kubectl", "logs", pod_name, "--tail=10"],
+                        stderr=subprocess.DEVNULL, timeout=5,
+                    ).decode("utf-8", errors="replace").rstrip()
+                    print(f"\n--- {pod_name} (last 10 log lines) ---")
+                    print(tail)
+                except Exception:
+                    print(f"\n--- {pod_name}: failed to fetch logs ---")
             sys.exit(1)
 
 

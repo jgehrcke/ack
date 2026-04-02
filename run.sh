@@ -15,7 +15,7 @@ usage() {
     echo "  --gpus-via-dra         use DRA for GPU allocation instead of device plugin"
     echo "  --verify N             run N full benchmark rounds then exit (verification mode)"
     echo "  --peer-discovery M     peer discovery method: dns (default) or k8s-api"
-    echo "  --skip-teardown        with --verify: keep pods running after verify completes"
+    echo "  --teardown-on-verify-error  tear down resources even on verify failure (default: keep for debugging)"
     echo "  --verify-timeout N     with --verify: timeout in seconds (default: 300)"
     exit 1
 }
@@ -34,7 +34,7 @@ export ACK_POLL_INTERVAL_S="1"
 export ACK_VERIFY_ROUNDS="0"
 export ACK_PEER_DISCOVERY="k8s-api"
 GPU_DRA=false
-SKIP_TEARDOWN=false
+TEARDOWN_ON_VERIFY_ERROR=false
 VERIFY_TIMEOUT_S="300"
 
 while [[ $# -gt 0 ]]; do
@@ -51,8 +51,8 @@ while [[ $# -gt 0 ]]; do
             ACK_VERIFY_ROUNDS="$2"; shift 2 ;;
         --peer-discovery)
             ACK_PEER_DISCOVERY="$2"; shift 2 ;;
-        --skip-teardown)
-            SKIP_TEARDOWN=true; shift ;;
+        --teardown-on-verify-error)
+            TEARDOWN_ON_VERIFY_ERROR=true; shift ;;
         --verify-timeout)
             VERIFY_TIMEOUT_S="$2"; shift 2 ;;
         *)
@@ -100,12 +100,14 @@ kubectl get pods -l app=ack -o wide
 
 if [[ "$ACK_VERIFY_ROUNDS" != "0" ]]; then
     echo "--- Verify mode: waiting for all pods to complete ${ACK_VERIFY_ROUNDS} full rounds"
-    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}"
-    VERIFY_RC=$?
-    if [[ "$SKIP_TEARDOWN" != "true" ]]; then
+    VERIFY_RC=0
+    uv run "${SCRIPT_DIR}/verify_wait.py" "${ACK_REPLICAS}" "${ACK_VERIFY_ROUNDS}" "${VERIFY_TIMEOUT_S}" || VERIFY_RC=$?
+    if [[ "$VERIFY_RC" -eq 0 ]]; then
+        make -C "${SCRIPT_DIR}" clean
+    elif [[ "$TEARDOWN_ON_VERIFY_ERROR" == "true" ]]; then
         make -C "${SCRIPT_DIR}" clean
     else
-        echo "--- Skipping teardown (--skip-teardown)"
+        echo "--- Keeping resources for debugging (use --teardown-on-verify-error to auto-clean)"
     fi
     exit $VERIFY_RC
 fi
