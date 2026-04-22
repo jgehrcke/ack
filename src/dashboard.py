@@ -3,6 +3,10 @@
 # requires-python = ">=3.14"
 # dependencies = ["rich"]
 # ///
+
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 """
 TUI dashboard for ack — All-to-All CUDA Kubernetes test.
 

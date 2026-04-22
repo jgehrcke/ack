@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 # Simulate a sudden node failure by force-killing an ack pod (no SIGTERM,
 # no graceful shutdown). The StatefulSet recreates the pod, which should
 # land on a different node via anti-affinity. Tests IMEX daemon recovery

@@ -2,6 +2,10 @@
 # /// script
 # requires-python = ">=3.12"
 # ///
+
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 """ACK — All-to-all CUDA memory copy test for Kubernetes.
 
 Deploy a benchmark StatefulSet and optionally run verification.

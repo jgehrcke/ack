@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 REV := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")
 IMAGE := docker.io/jgehrcke/ack:$(REV)
 

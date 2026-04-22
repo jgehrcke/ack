@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 """
 ACK — All-To-All raw CUDA API-based MNNVL test runner for Kubernetes.
 

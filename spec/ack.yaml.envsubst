@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:

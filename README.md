@@ -221,3 +221,7 @@ Each pod also includes [py-spy](https://github.com/benfred/py-spy) for a live `t
 ```
 kubectl exec -it ack-0 -- py-spy top --pid 1
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 FROM ubuntu:24.04 AS build
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

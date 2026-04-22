@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 """Pre-compile the checksum CUDA kernel to PTX at image build time.
 
 Compiles for compute_80 (Ampere) — the lowest virtual architecture that

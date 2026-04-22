@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 # Simulate a node replacement: cordon + drain a worker node running an
 # ack pod, watch the StatefulSet reschedule it to a free node. This is
 # a clean shutdown — the pod receives SIGTERM and performs graceful

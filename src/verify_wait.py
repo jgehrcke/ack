@@ -3,6 +3,10 @@
 # requires-python = ">=3.12"
 # dependencies = ["requests"]
 # ///
+
+# SPDX-FileCopyrightText: Dr. Jan-Philip Gehrcke
+# SPDX-License-Identifier: MIT
+
 """Poll all ACK pods until every pod reports verify_state=SUCCEEDED, then exit 0.
 
 Expects two arguments: <num_pods> <verify_rounds>.
